@@ -1,0 +1,13 @@
+__pycache__/
+*.log
+.env
+/venv/
+/logs/*
+!/logs/.gitkeep
+/dist/
+/build/
+/node_modules/
+*.sqlite
+*.db
+*.pem
+.DS_Store
