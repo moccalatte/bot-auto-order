@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any, Dict, List
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from src.core.audit import audit_log
 from src.core.currency import format_rupiah
 from src.services.catalog import (
     Product,
@@ -18,8 +20,13 @@ from src.services.catalog import (
     list_categories,
     list_products,
 )
-from src.services.order import list_orders, update_order_status
+from src.services.order import (
+    list_orders,
+    update_order_status,
+    ensure_order_can_transition,
+)
 from src.services.users import block_user, list_users, unblock_user
+from src.services.voucher import add_voucher, delete_voucher, list_vouchers
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +80,17 @@ async def handle_add_product_input(raw: str, actor_id: int) -> str:
     )
 
     logger.info("Admin %s menambahkan produk baru %s (%s).", actor_id, name, code)
+    audit_log(
+        actor_id=actor_id,
+        action="admin.product.add",
+        details={
+            "code": code,
+            "name": name,
+            "category_id": category_id,
+            "price_cents": price_cents,
+            "stock": stock,
+        },
+    )
     return f"✅ Produk '{name}' berhasil ditambahkan."
 
 
@@ -118,6 +136,11 @@ async def handle_edit_product_input(raw: str, actor_id: int) -> str:
     logger.info(
         "Admin %s mengubah produk %s: %s", actor_id, product_id, list(updates.keys())
     )
+    audit_log(
+        actor_id=actor_id,
+        action="admin.product.edit",
+        details={"product_id": product_id, "fields": updates},
+    )
     return f"✅ Produk #{product_id} berhasil diupdate."
 
 
@@ -128,21 +151,64 @@ async def handle_delete_product_input(raw: str, actor_id: int) -> str:
         raise AdminActionError("Produk tidak ditemukan.")
     await delete_product(product_id)
     logger.info("Admin %s menghapus produk %s.", actor_id, product_id)
+    audit_log(
+        actor_id=actor_id,
+        action="admin.product.delete",
+        details={"product_id": product_id, "name": product.name},
+    )
     return f"🗑️ Produk '{product.name}' berhasil dihapus."
 
 
 async def handle_update_order_input(raw: str, actor_id: int) -> str:
-    parts = [part.strip() for part in raw.split("|", maxsplit=1)]
-    if len(parts) != 2:
-        raise AdminActionError("Format tidak valid. Gunakan: order_id|status_baru.")
-    order_id, new_status = parts
-    if not order_id:
+    parts = [part.strip() for part in raw.split("|")]
+    if len(parts) < 2:
+        raise AdminActionError(
+            "Format tidak valid. Gunakan: order_id|status_baru|catatan(optional)."
+        )
+
+    order_id_str, new_status = parts[0], parts[1]
+    note = parts[2] if len(parts) >= 3 else ""
+
+    if not order_id_str:
         raise AdminActionError("Order ID tidak boleh kosong.")
     if not new_status:
         raise AdminActionError("Status baru tidak boleh kosong.")
+
+    order_id = _parse_int(order_id_str, "order_id")
+    try:
+        await ensure_order_can_transition(
+            order_id,
+            new_status,
+            admin_id=actor_id,
+            note=note or None,
+        )
+    except ValueError as exc:  # convert to admin-facing error
+        raise AdminActionError(str(exc)) from exc
+
     await update_order_status(order_id, new_status)
     logger.info(
-        "Admin %s mengubah status order %s menjadi %s.", actor_id, order_id, new_status
+        "Admin %s mengubah status order %s menjadi %s (catatan=%s).",
+        actor_id,
+        order_id,
+        new_status,
+        note or "-",
+    )
+    if note:
+        audit_log(
+            actor_id=actor_id,
+            action="admin.order.update_manual",
+            details={
+                "order_id": order_id,
+                "status": new_status,
+                "note": note,
+            },
+        )
+        return f"🔄 Status order {order_id} diupdate ke {new_status}. Catatan tersimpan untuk audit."
+
+    audit_log(
+        actor_id=actor_id,
+        action="admin.order.update",
+        details={"order_id": order_id, "status": new_status},
     )
     return f"🔄 Status order {order_id} diupdate ke {new_status}."
 
@@ -154,9 +220,19 @@ async def handle_block_user_input(
     if unblock:
         await unblock_user(user_id)
         logger.info("Admin %s melakukan unblock pada user %s.", actor_id, user_id)
+        audit_log(
+            actor_id=actor_id,
+            action="admin.user.unblock",
+            details={"user_id": user_id},
+        )
         return f"✅ User #{user_id} berhasil diaktifkan kembali."
     await block_user(user_id)
     logger.info("Admin %s memblokir user %s.", actor_id, user_id)
+    audit_log(
+        actor_id=actor_id,
+        action="admin.user.block",
+        details={"user_id": user_id},
+    )
     return f"🚫 User #{user_id} berhasil diblokir."
 
 
@@ -217,6 +293,111 @@ async def list_categories_overview() -> str:
     return "📂 Daftar Kategori:\n" + "\n".join(lines)
 
 
+async def render_voucher_overview(limit: int = 20) -> str:
+    vouchers = await list_vouchers(limit=limit)
+    if not vouchers:
+        return "🎟️ Tidak ada voucher aktif."
+    lines: List[str] = []
+    for voucher in vouchers:
+        code = voucher.get("code")
+        discount_type = voucher.get("discount_type")
+        value = voucher.get("discount_value")
+        max_uses = voucher.get("max_uses") or "-"
+        valid_from = voucher.get("valid_from")
+        valid_until = voucher.get("valid_until")
+
+        def _fmt(ts):
+            if isinstance(ts, datetime):
+                return ts.strftime("%d/%m/%Y %H:%M")
+            return ts or "-"
+
+        lines.append(
+            f"{code} • {discount_type} {value} • Max {max_uses} • {_fmt(valid_from)} → {_fmt(valid_until)}"
+        )
+    return "🎟️ Voucher Aktif:\n" + "\n".join(lines)
+
+
+def _parse_optional_datetime(value: str) -> datetime | None:
+    value = value.strip()
+    if not value or value == "-":
+        return None
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d", "%d/%m/%Y %H:%M", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    raise AdminActionError(f"Format tanggal tidak dikenali: {value}")
+
+
+async def handle_generate_voucher_input(raw: str, actor_id: int) -> str:
+    """
+    Format: kode|deskripsi|tipe|nilai|max_uses|valid_from|valid_until
+    Gunakan '-' untuk nilai opsional.
+    """
+
+    parts = [part.strip() for part in raw.split("|")]
+    if len(parts) < 7:
+        raise AdminActionError(
+            "Format tidak valid. Gunakan: kode|deskripsi|tipe|nilai|max_uses|valid_from|valid_until."
+        )
+
+    code, description, discount_type = parts[:3]
+    discount_value = _parse_int(parts[3], "nilai")
+    max_uses = None if parts[4] in {"-", ""} else _parse_int(parts[4], "max_uses")
+    valid_from = _parse_optional_datetime(parts[5])
+    valid_until = _parse_optional_datetime(parts[6])
+
+    voucher_id = await add_voucher(
+        code=code,
+        description=description,
+        discount_type=discount_type,
+        discount_value=discount_value,
+        max_uses=max_uses,
+        valid_from=valid_from,
+        valid_until=valid_until,
+    )
+    logger.info(
+        "Admin %s membuat voucher %s (id=%s) tipe=%s nilai=%s max_uses=%s valid_from=%s valid_until=%s",
+        actor_id,
+        code,
+        voucher_id,
+        discount_type,
+        discount_value,
+        max_uses or "-",
+        valid_from,
+        valid_until,
+    )
+    audit_log(
+        actor_id=actor_id,
+        action="admin.voucher.create",
+        details={
+            "voucher_id": voucher_id,
+            "code": code,
+            "discount_type": discount_type,
+            "discount_value": discount_value,
+            "max_uses": max_uses,
+            "valid_from": valid_from.isoformat() if valid_from else None,
+            "valid_until": valid_until.isoformat() if valid_until else None,
+        },
+    )
+    return (
+        f"✅ Voucher {code} berhasil dibuat (ID {voucher_id}).\n"
+        "Perubahan tercatat di log untuk audit owner."
+    )
+
+
+async def handle_delete_voucher_input(raw: str, actor_id: int) -> str:
+    voucher_id = _parse_int(raw.strip(), "voucher_id")
+    await delete_voucher(voucher_id)
+    logger.info("Admin %s menonaktifkan voucher id=%s.", actor_id, voucher_id)
+    audit_log(
+        actor_id=actor_id,
+        action="admin.voucher.disable",
+        details={"voucher_id": voucher_id},
+    )
+    return f"🗑️ Voucher #{voucher_id} berhasil dinonaktifkan dan tercatat di log."
+
+
 __all__ = [
     "AdminActionError",
     "handle_add_product_input",
@@ -227,5 +408,8 @@ __all__ = [
     "render_product_overview",
     "render_order_overview",
     "render_user_overview",
+    "render_voucher_overview",
     "list_categories_overview",
+    "handle_generate_voucher_input",
+    "handle_delete_voucher_input",
 ]

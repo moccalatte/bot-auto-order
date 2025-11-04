@@ -34,10 +34,13 @@ from src.bot.admin.admin_actions import (
     handle_delete_product_input,
     handle_edit_product_input,
     handle_update_order_input,
+    handle_generate_voucher_input,
+    handle_delete_voucher_input,
     list_categories_overview,
     render_order_overview,
     render_product_overview,
     render_user_overview,
+    render_voucher_overview,
 )
 from src.bot.admin.admin_state import (
     clear_admin_state,
@@ -208,6 +211,10 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                         user.id,  # type: ignore[arg-type]
                         unblock=state.payload.get("unblock", False),
                     )
+                elif state.action == "generate_voucher":
+                    response = await handle_generate_voucher_input(text, user.id)  # type: ignore[arg-type]
+                elif state.action == "delete_voucher":
+                    response = await handle_delete_voucher_input(text, user.id)  # type: ignore[arg-type]
                 else:
                     response = "⚠️ Aksi admin tidak dikenali."
                     clear_admin_state(context.user_data)
@@ -268,6 +275,14 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "👥 Kelola User", reply_markup=admin_user_menu()
         )
         return
+    if text == "🎟️ Kelola Voucher":
+        from src.bot.admin.admin_menu import admin_voucher_menu
+
+        await update.message.reply_text(
+            "🎟️ Kelola Voucher\nSetiap aksi akan dicatat di log untuk owner.",
+            reply_markup=admin_voucher_menu(),
+        )
+        return
     if text == "⬅️ Kembali ke Admin Settings":
         if not is_admin:
             await update.message.reply_text("❌ Kamu tidak punya akses admin.")
@@ -287,6 +302,32 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         reply_keyboard = keyboards.main_reply_keyboard(range(1, min(len(products), 6)))
         await update.message.reply_text(
             "🏠 Kembali ke menu utama.", reply_markup=reply_keyboard
+        )
+        return
+    if text == "➕ Generate Voucher Baru":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
+        set_admin_state(context.user_data, "generate_voucher")
+        await update.message.reply_text(
+            "➕ Format: kode|deskripsi|tipe|nilai|max_uses|valid_from|valid_until\n"
+            "Gunakan '-' untuk nilai opsional. Semua perubahan tercatat di log owner."
+        )
+        return
+    if text == "📋 Lihat Voucher Aktif":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
+        overview = await render_voucher_overview()
+        await update.message.reply_text(overview)
+        return
+    if text == "🗑️ Nonaktifkan/Hapus Voucher":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
+        set_admin_state(context.user_data, "delete_voucher")
+        await update.message.reply_text(
+            "🗑️ Kirim ID voucher yang akan dinonaktifkan. Aksi tercatat di log."
         )
         return
     if text == "📊 Cek Stok":
@@ -414,7 +455,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         elif data == "admin:update_order":
             set_admin_state(context.user_data, "update_order")
             await update.effective_message.reply_text(
-                "🔄 Kirim ID order dan status baru."
+                "🔄 Format: order_id|status_baru|catatan(optional). Isi catatan hanya bila pembayaran manual/deposit (misal nomor referensi)."
             )
             return
         elif data == "admin:list_users":

@@ -38,6 +38,7 @@ def admin_main_menu() -> ReplyKeyboardMarkup:
         ["🛒 Kelola Produk"],
         ["📦 Kelola Order"],
         ["👥 Kelola User"],
+        ["🎟️ Kelola Voucher"],
         ["⬅️ Kembali ke Menu Utama"],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -94,6 +95,17 @@ def admin_user_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("⬅️ Kembali", callback_data="admin:back")],
     ]
     return InlineKeyboardMarkup(buttons)
+
+
+def admin_voucher_menu() -> ReplyKeyboardMarkup:
+    """Submenu untuk Kelola Voucher dengan pencatatan log."""
+    keyboard = [
+        ["➕ Generate Voucher Baru"],
+        ["📋 Lihat Voucher Aktif"],
+        ["🗑️ Nonaktifkan/Hapus Voucher"],
+        ["⬅️ Kembali ke Admin Settings"],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
 async def handle_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

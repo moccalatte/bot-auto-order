@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Dict, Tuple
 from uuid import uuid4
 
+from src.core.audit import audit_log
 from src.core.telemetry import TelemetryTracker
 from src.services.cart import Cart
 from src.services.catalog import Product
@@ -25,7 +26,9 @@ class PaymentError(RuntimeError):
 class PaymentService:
     """Coordinate order creation, invoice generation, and telemetry."""
 
-    def __init__(self, pakasir_client: PakasirClient, telemetry: TelemetryTracker) -> None:
+    def __init__(
+        self, pakasir_client: PakasirClient, telemetry: TelemetryTracker
+    ) -> None:
         self._pakasir_client = pakasir_client
         self._telemetry = telemetry
 
@@ -72,6 +75,21 @@ class PaymentService:
                         raise PaymentError(
                             f"Stok tidak cukup untuk {item.product.name}."
                         )
+                    update_result = await connection.execute(
+                        """
+                        UPDATE products
+                        SET stock = stock - $2,
+                            updated_at = NOW()
+                        WHERE id = $1 AND stock >= $2;
+                        """,
+                        item.product.id,
+                        item.quantity,
+                    )
+                    if update_result == "UPDATE 0":
+                        raise PaymentError(
+                            f"Stok tidak cukup untuk {item.product.name}."
+                        )
+
                     await connection.execute(
                         """
                         INSERT INTO order_items (order_id, product_id, quantity, unit_price_cents)
@@ -103,43 +121,98 @@ class PaymentService:
                     total_cents,
                 )
 
-        pakasir_response = await self._pakasir_client.create_transaction(
-            method,
-            gateway_order_id,
-            total_cents,
-        )
+        if method == "deposit":
+            # Catat pembayaran manual yang perlu verifikasi owner.
+            await self._record_manual_payment(order_id, total_cents, telegram_user)
+            payment_payload = {
+                "method": "deposit",
+                "note": "Menunggu verifikasi manual owner",
+            }
+        else:
+            pakasir_response = await self._pakasir_client.create_transaction(
+                method,
+                gateway_order_id,
+                total_cents,
+            )
+            payment_payload = pakasir_response.get("payment", {})
 
         await self._telemetry.increment("carts_created")
 
-        payment_payload = pakasir_response.get("payment", {})
         return gateway_order_id, {
             "order_id": str(order_id),
             "total_cents": total_cents,
             "payment": payment_payload,
-            "payment_url": self._pakasir_client.build_payment_url(gateway_order_id, total_cents),
+            "payment_url": self._pakasir_client.build_payment_url(
+                gateway_order_id, total_cents
+            ),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
-    async def mark_payment_completed(self, gateway_order_id: str, amount_cents: int) -> None:
+    async def mark_payment_completed(
+        self, gateway_order_id: str, amount_cents: int
+    ) -> None:
         """Set payment and order status to completed."""
         pool = await get_pool()
         async with pool.acquire() as connection:
             async with connection.transaction():
                 payment_row = await connection.fetchrow(
                     """
-                    UPDATE payments
-                    SET status = 'completed',
-                        updated_at = NOW()
+                    SELECT order_id, status, amount_cents
+                    FROM payments
                     WHERE gateway_order_id = $1
-                    RETURNING order_id;
+                    FOR UPDATE;
                     """,
                     gateway_order_id,
                 )
                 if payment_row is None:
                     logger.warning("Payment not found for %s", gateway_order_id)
+                    raise PaymentError("Payment tidak ditemukan.")
+
+                if payment_row["status"] == "completed":
+                    logger.info(
+                        "[payment_replay] Gateway %s sudah ditandai selesai, abaikan webhook ulang.",
+                        gateway_order_id,
+                    )
                     return
 
+                stored_amount = int(payment_row.get("amount_cents") or 0)
+                if stored_amount != amount_cents:
+                    logger.error(
+                        "[payment_mismatch] Amount gateway %s tidak cocok. stored=%s gateway=%s",
+                        gateway_order_id,
+                        stored_amount,
+                        amount_cents,
+                    )
+                    raise PaymentError("Nominal pembayaran tidak cocok.")
+
                 order_id = payment_row["order_id"]
+                order_row = await connection.fetchrow(
+                    """
+                    SELECT total_price_cents FROM orders WHERE id = $1 LIMIT 1;
+                    """,
+                    order_id,
+                )
+                if (
+                    order_row
+                    and int(order_row["total_price_cents"] or 0) != amount_cents
+                ):
+                    logger.error(
+                        "[payment_mismatch] Order %s total tidak sesuai dengan pembayaran %s",
+                        order_id,
+                        gateway_order_id,
+                    )
+                    raise PaymentError("Nominal order tidak sesuai.")
+
+                await connection.execute(
+                    """
+                    UPDATE payments
+                    SET status = 'completed',
+                        updated_at = NOW()
+                    WHERE gateway_order_id = $1;
+                    """,
+                    gateway_order_id,
+                )
+
                 await connection.execute(
                     """
                     UPDATE orders
@@ -150,18 +223,165 @@ class PaymentService:
                     order_id,
                 )
         await self._telemetry.increment("successful_transactions")
+        logger.info(
+            "[payment_completed] Order %s sukses dari gateway %s",
+            order_id,
+            gateway_order_id,
+        )
+        audit_log(
+            actor_id=None,
+            action="payment.completed",
+            details={
+                "gateway_order_id": gateway_order_id,
+                "order_id": int(order_id),
+                "amount_cents": amount_cents,
+            },
+        )
 
     async def mark_payment_failed(self, gateway_order_id: str) -> None:
         """Mark payment as failed/expired."""
         pool = await get_pool()
+        order_id: int | None = None
         async with pool.acquire() as connection:
-            await connection.execute(
-                """
-                UPDATE payments
-                SET status = 'failed',
-                    updated_at = NOW()
-                WHERE gateway_order_id = $1;
-                """,
-                gateway_order_id,
-            )
+            async with connection.transaction():
+                payment_row = await connection.fetchrow(
+                    """
+                    SELECT order_id, status
+                    FROM payments
+                    WHERE gateway_order_id = $1
+                    FOR UPDATE;
+                    """,
+                    gateway_order_id,
+                )
+                if payment_row is None:
+                    logger.warning("Payment not found for %s", gateway_order_id)
+                    return
+
+                if payment_row["status"] == "failed":
+                    logger.info(
+                        "[payment_replay] Payment %s sudah gagal sebelumnya.",
+                        gateway_order_id,
+                    )
+                    return
+
+                order_id = payment_row["order_id"]
+
+                await connection.execute(
+                    """
+                    UPDATE payments
+                    SET status = 'failed',
+                        updated_at = NOW()
+                    WHERE gateway_order_id = $1;
+                    """,
+                    gateway_order_id,
+                )
+
+                await connection.execute(
+                    """
+                    UPDATE orders
+                    SET status = 'cancelled',
+                        updated_at = NOW()
+                    WHERE id = $1 AND status <> 'paid';
+                    """,
+                    order_id,
+                )
+
+                order_items = await connection.fetch(
+                    """
+                    SELECT product_id, quantity
+                    FROM order_items
+                    WHERE order_id = $1;
+                    """,
+                    order_id,
+                )
+                for item in order_items:
+                    await connection.execute(
+                        """
+                        UPDATE products
+                        SET stock = stock + $2,
+                            updated_at = NOW()
+                        WHERE id = $1;
+                        """,
+                        item["product_id"],
+                        item["quantity"],
+                    )
+                logger.info(
+                    "[payment_failed] Restock order %s karena payment %s gagal.",
+                    order_id,
+                    gateway_order_id,
+                )
         await self._telemetry.increment("failed_transactions")
+        audit_log(
+            actor_id=None,
+            action="payment.failed",
+            details={
+                "gateway_order_id": gateway_order_id,
+                "order_id": order_id,
+            },
+        )
+
+    async def _record_manual_payment(
+        self,
+        order_id: int,
+        amount_cents: int,
+        telegram_user: Dict[str, str | int | None],
+    ) -> None:
+        """Catat pembayaran manual/deposit agar owner dapat memverifikasi."""
+
+        pool = await get_pool()
+        async with pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS payment_manual_reviews (
+                        id BIGSERIAL PRIMARY KEY,
+                        order_id BIGINT NOT NULL,
+                        telegram_user_id BIGINT,
+                        telegram_username TEXT,
+                        amount_cents BIGINT NOT NULL,
+                        note TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    """
+                )
+
+                await connection.execute(
+                    """
+                    INSERT INTO payment_manual_reviews (
+                        order_id,
+                        telegram_user_id,
+                        telegram_username,
+                        amount_cents,
+                        note
+                    )
+                    VALUES ($1, $2, $3, $4, 'Manual deposit pending owner verification');
+                    """,
+                    order_id,
+                    telegram_user.get("id"),
+                    telegram_user.get("username"),
+                    amount_cents,
+                )
+
+                await connection.execute(
+                    """
+                    UPDATE orders
+                    SET status = 'pending_manual',
+                        updated_at = NOW()
+                    WHERE id = $1;
+                    """,
+                    order_id,
+                )
+
+        logger.info(
+            "[manual_payment_pending] Order %s menunggu verifikasi owner (deposit/manual).",
+            order_id,
+        )
+        audit_log(
+            actor_id=telegram_user.get("id"),
+            action="payment.manual_pending",
+            details={
+                "order_id": order_id,
+                "amount_cents": amount_cents,
+                "telegram_username": telegram_user.get("username"),
+            },
+        )

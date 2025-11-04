@@ -22,6 +22,7 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
   - CRUD produk (tanpa unggah gambar).
   - Kelola order (lihat, update status).
   - Kelola user (lihat, blokir/unblokir).
+  - Kelola voucher (generate, lihat, nonaktifkan) beserta rentang masa berlaku dengan pencatatan log penuh.
 - **Kustomisasi Respon Bot**: Template pesan hanya bisa **dipreview** melalui menu admin; perubahan dilakukan oleh owner melalui pipeline terkontrol dengan validasi placeholder (`{nama}`, `{order_id}`, dll).
 - **Backup & Restore Konfigurasi**: Semua perubahan disimpan di database, dapat dibackup dan direstore oleh admin.
 - **Audit Log**: Setiap perubahan konfigurasi tercatat untuk audit owner.
@@ -86,6 +87,7 @@ BOT_STORE_NAME=Bot Auto Order
 - Semua log runtime dan audit perubahan konfigurasi tersimpan di `logs/<service>/<YYYY-MM-DD>.log` dengan format `[timestamp] [level] message`.
 - Metrik ringan (jumlah transaksi, error, perubahan konfigurasi) dicatat oleh `TelemetryTracker` dan modul audit.
 - Audit owner dapat dilakukan hanya lewat isi folder `/logs/`.
+- Setiap aksi admin penting (produk, order, voucher, blokir user) juga ditulis dalam format JSON ke `logs/audit/<YYYY-MM-DD>.log` untuk bukti sengketa.
 
 ## Keamanan & Anti-Spam
 - Guard anti-spam bawaan memblokir aksi yang lebih cepat dari ambang 1 detik secara beruntun.
@@ -107,10 +109,10 @@ BOT_STORE_NAME=Bot Auto Order
 
 ## Cara Kustomisasi Bot oleh Admin
 1. Admin kirim `/admin` di Telegram untuk membuka menu admin.
-2. Pilih submenu: Kelola Respon Bot (preview saja), Produk, Order, atau User.
+2. Pilih submenu: Kelola Respon Bot (preview saja), Produk, Order, User, atau Voucher.
 3. Ikuti instruksi yang muncul (format input ditampilkan pada setiap aksi).
 4. Perubahan template dilakukan oleh owner; admin hanya dapat melakukan preview untuk memastikan pesan yang sedang aktif.
-5. Setiap perubahan data (produk/order/user) divalidasi sebelum disimpan.
+5. Saat memperbarui status order, gunakan format `order_id|status|catatan(optional)`; catatan hanya diperlukan bila pembayaran manual/deposit dan berisi bukti singkat (misal nomor referensi transfer). Semua perubahan data (produk/order/user/voucher) divalidasi sebelum disimpan dan otomatis tercatat di log untuk owner (termasuk pengaturan masa berlaku & batas voucher).
 6. Owner dapat audit semua perubahan melalui log.
 
 ## Rollback & Recovery

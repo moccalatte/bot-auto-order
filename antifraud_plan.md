@@ -1,42 +1,42 @@
-# Rencana Anti-Fraud & Pembatasan Fitur
+# Rencana Anti-Fraud (Owner ↔ Seller)
 
-## Risiko Utama
-1. **Manipulasi status order & saldo**  
-   Admin dapat mengubah status order menjadi “sukses” tanpa pembayaran sah karena tidak ada verifikasi silang ke gateway.
-2. **Penyalahgunaan template pesan**  
-   Custom template bisa digunakan untuk membuat pesan palsu (“pembayaran diterima”) yang menipu customer/owner.
-3. **Voucher diskon tak terbatas**  
-   Admin bisa membuat voucher 100% dan membagikannya ke pihak sendiri tanpa batasan atau audit.
-4. **Blokir/unblokir user sewenang-wenang**  
-   Tidak ada catatan alasan; bisa menimbulkan konflik dan dugaan diskriminasi.
-5. **Upload media produk**  
-   Gambar dapat diganti dengan konten palsu/berbahaya, tidak ada mekanisme moderasi.
-6. **Replay pembayaran (QR lama)**  
-   Customer bisa mencoba memakai ulang QR/invoice lama bila tidak dicek statusnya.
+**Konteks Singkat**  
+Owner menyewakan dan mengoperasikan instance bot pada VPS sendiri. Seller membawa token BotFather serta akun Pakasir mereka, sementara customer berinteraksi langsung dengan bot. Tanggung jawab owner adalah memastikan semua transaksi otomatis lewat payment gateway berjalan aman, anti-komplain, dan mempunyai jejak log yang rapi untuk membela diri jika terjadi sengketa.
 
-## Rencana Mitigasi
-- **Verifikasi Status Order**
-  - Simpan hash/invoice_id dan cek status ke gateway sebelum mengubah order jadi “paid”.
-  - Tambahkan log yang mencatat admin id, order id, dan bukti verifikasi.
-- **Pembekuan Template Kritis**
-  - Nonaktifkan pengeditan template langsung dari menu admin. Perubahan hanya via owner.
-  - Tetap sediakan menu preview agar admin tahu pesan aktif.
-- **Hapus Manajemen Voucher**
-  - Hilangkan opsi pembuatan/penghapusan voucher dari menu admin untuk menghindari diskon liar.
-  - Jika perlu voucher, buat mekanisme permintaan khusus via owner.
-- **Catatan Aksi Admin**
-  - Setiap blokir/unblokir wajib mencatat alasan dan timestamp di audit log (direncanakan implementasi berikutnya).
-- **Hapus Upload Gambar Produk**
-  - Menutup celah penyisipan konten berbahaya serta menyederhanakan approval katalog.
-- **Validasi Pembayaran**
-  - Saat webhook diterima, pastikan order_id + amount cocok sebelum update status.
-  - Arsipkan respons gateway untuk audit.
-- **Notifikasi Owner**
-  - Rencanakan broadcast ke owner setiap ada perubahan sensitif (status order, blokir, dsb.) untuk early warning.
+---
 
-## Tindakan Langsung (Sprint Ini)
-1. Hapus fitur upload gambar produk dari Admin Settings.
-2. Hapus seluruh menu Kelola Voucher.
-3. Batasi Kelola Respon Bot menjadi hanya **preview** (tanpa edit).
-4. Sesuaikan dokumentasi (README & frontend.md) agar mencerminkan fitur baru.
-5. Tambahkan plan audit ini ke backlog untuk eksekusi bertahap.
+## Risiko Kecurangan yang Perlu Dijaga
+
+1. **Validitas Transaksi Gateway (Checkout & Deposit Otomatis)**  
+   - *Skenario*: seller atau customer menuduh pembayaran gateway gagal padahal sukses (atau sebaliknya).  
+   - *Mitigasi sistem*: Payment service kini mencocokkan nominal order vs payload gateway, menggunakan locking `FOR UPDATE`, dan mengabaikan webhook duplikat. Stok berkurang dan direstor otomatis, sehingga tidak ada celah stok negatif. Semua webhook dicatat di log `logs/bot-auto-order/<tanggal>.log`.  
+   - *Kontrol owner*: simpan log harian webhook & pembayaran, serta bandingkan dengan laporan Pakasir seller bila muncul komplain.
+
+2. **Pencatatan Deposit Manual (Fallback)**  
+   - *Skenario*: seller menerima deposit di luar gateway dan meminta owner mengesahkan order.  
+   - *Mitigasi sistem*: status “paid” tanpa pembayaran gateway akan ditolak kecuali admin menambahkan catatan. Catatan tersebut tersimpan di `order_manual_verifications`, jadi owner punya bukti siapa yang meminta verifikasi manual.  
+   - *Kontrol owner*: jika catatan manual muncul, minta seller mengirim bukti transfer sebelum melakukan override. Ini mencegah tuduhan bahwa owner menahan dana.
+
+3. **Penyalahgunaan Akses Admin**  
+   - *Skenario*: seller memberikan akses admin ke pihak lain yang kemudian membuat perubahan merugikan (voucher ekstrem, blokir customer, ubah status order).  
+   - *Mitigasi sistem*: setiap aksi admin direkam (ID Telegram, waktu, nilai perubahan).  
+   - *Kontrol owner*: minta seller menyerahkan daftar admin yang sah, audit log ketika ada perubahan mencurigakan, dan jadikan log sebagai bukti jika perlu menegur atau memutus kontrak.
+
+
+> Preferensi operasional seller (mis. harga produk, promo pribadi) tidak dianggap risiko fatal selama log tersedia. Owner cukup menunjukkan bukti dari log ketika terjadi komplain.
+
+---
+
+## Checklist Monitoring Owner
+1. **Harian**: periksa log webhook (status transaksi) dan catatan manual baru.  
+2. **Mingguan**: tinjau ringkasan restock (indikasi pembayaran gagal) dan voucher yang dibuat/di-nonaktifkan.  
+3. **Saat Sengketa**: gunakan log (webhook, order manual, voucher) sebagai bukti sebelum memutuskan kompensasi atau penalti.
+
+---
+
+## Backlog Teknis (Opsional)
+- Notifikasi otomatis (Telegram/email) kepada owner ketika ada catatan manual baru atau voucher di atas ambang diskon.  
+- Cron job yang menghasilkan laporan harian berisi transaksi gateway sukses/gagal, restock, dan voucher terbaru.  
+- Rekonsiliasi otomatis catatan manual dengan laporan Pakasir seller (jika akses API tersedia).
+
+Dengan fokus pada tiga area di atas dan kebiasaan meninjau log, owner dapat menjaga kepercayaan seller–customer sekaligus memiliki bukti kuat apabila tuduhan kecurangan muncul.

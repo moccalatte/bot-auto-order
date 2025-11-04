@@ -12,7 +12,7 @@ from aiohttp import web
 
 from src.core.config import get_settings
 from src.core.telemetry import TelemetryTracker
-from src.services.payment import PaymentService
+from src.services.payment import PaymentService, PaymentError
 
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,11 @@ async def handle_pakasir_webhook(
     amount_cents = int(payload.get("amount", 0))
 
     if status == "completed":
-        await payment_service.mark_payment_completed(order_id, amount_cents)
+        try:
+            await payment_service.mark_payment_completed(order_id, amount_cents)
+        except PaymentError as exc:
+            logger.error("Failed to mark payment completed: %s", exc)
+            raise web.HTTPBadRequest(text=str(exc))
         await telemetry.increment("successful_transactions")
     elif status in {"failed", "expired", "cancelled"}:
         await payment_service.mark_payment_failed(order_id)
