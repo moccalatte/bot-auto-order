@@ -1,0 +1,11 @@
+{
+  "refund_formula": "(harga * sisa_hari / total_hari) * fee",
+  "fee_rules": [
+    {"max_days_used": 7, "fee": 0.8},
+    {"min_days_used": 8, "fee": 0.7},
+    {"garansi_claims": 1, "fee": 0.6},
+    {"garansi_claims": 3, "fee": 0.5},
+    {"garansi_claims": ">3", "fee": 0.4}
+  ],
+  "notes": "Penjelasan dan kesepakatan fee refund:\n0.8 = pemakaian <1 minggu\n0.7 = pemakaian >1 minggu\n0.6 = sudah claim garansi 1-2×\n0.5 = sudah claim garansi 3×\n0.4 = sudah claim garansi > 3×\n• 1 bulan dihitung 30 hari.\n• Fee admin untuk service waktu, tenaga, dll.\n• Claim refund hanya untuk yang diminta oleh seller."
+}

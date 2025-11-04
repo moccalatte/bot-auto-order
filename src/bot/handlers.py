@@ -14,6 +14,7 @@ from telegram.ext import (
     ContextTypes,
     MessageHandler,
     filters,
+    ConversationHandler,
 )
 
 from src.bot.antispam import AntiSpamDecision, AntiSpamGuard
@@ -21,12 +22,28 @@ from src.bot import keyboards, messages
 from src.core.config import get_settings
 from src.core.currency import format_rupiah
 from src.core.qr import qris_to_image
+from src.core.custom_config import CustomConfigManager, DummyDBAdapter
+from src.bot.admin.admin_menu import handle_admin_menu
 from src.core.telemetry import TelemetryTracker
 from src.services.cart import Cart, CartManager
-from src.services.catalog import Product, get_product, list_categories, list_products, list_products_by_category
+from src.services.catalog import (
+    Product,
+    get_product,
+    list_categories,
+    list_products,
+    list_products_by_category,
+)
 from src.services.payment import PaymentError, PaymentService
 from src.services.pakasir import PakasirClient
 from src.services.stats import get_bot_statistics
+from src.services.calculator import (
+    load_config,
+    save_config,
+    calculate_refund,
+    add_history,
+    get_history,
+    update_config,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -90,7 +107,9 @@ def get_anti_spam(context: ContextTypes.DEFAULT_TYPE) -> AntiSpamGuard:
     return context.application.bot_data["anti_spam"]  # type: ignore[return-value]
 
 
-def _store_products(context: ContextTypes.DEFAULT_TYPE, products: Sequence[Product]) -> None:
+def _store_products(
+    context: ContextTypes.DEFAULT_TYPE, products: Sequence[Product]
+) -> None:
     context.user_data["product_list"] = list(products)
 
 
@@ -168,6 +187,22 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
+    # Handler untuk tombol Calculator
+    if text == "🧮 Calculator":
+        # Kirim rumus refund dari calcu.md
+        try:
+            with open("calcu.md", "r") as f:
+                calcu_text = f.read()
+        except Exception:
+            calcu_text = "Rumus refund tidak tersedia. Silakan cek dengan admin atau lihat file calcu.md."
+        await update.message.reply_text(
+            f"🧮 Kalkulator Refund\n\n{calcu_text}\n\n"
+            "Kamu bisa hitung refund dengan rumus di atas.\n"
+            "Untuk custom, admin bisa gunakan command /set_calculator.\n"
+            "Untuk kalkulasi otomatis, gunakan /refund_calculator."
+        )
+        return
+
     index = _parse_product_index(text)
     if index is not None:
         products: Sequence[Product] = context.user_data.get("product_list", [])
@@ -177,7 +212,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             cart = await cart_manager.get_cart(user_id)
             await show_product_detail(update.message, context, products[index], cart)
         else:
-            await update.message.reply_text("❓ Produk belum tersedia, coba pilih yang lain ya.")
+            await update.message.reply_text(
+                "❓ Produk belum tersedia, coba pilih yang lain ya."
+            )
         return
 
     await update.message.reply_text(messages.generic_error())
@@ -196,7 +233,112 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if await _check_spam(update, context, alert_callback=True):
         return
 
-    await query.answer()
+    # --- Admin Menu Callback Integration ---
+    # Only allow admin_ids to access admin callbacks
+    admin_ids = context.bot_data.get("admin_ids", [])
+    if data.startswith("admin:") and str(user.id) in admin_ids:
+        from src.bot.admin.admin_menu import (
+            admin_response_menu,
+            admin_product_menu,
+            admin_order_menu,
+            admin_user_menu,
+        )
+
+        if data == "admin:back":
+            await update.effective_message.reply_text(
+                "⚙️ Menu Admin:\nSilakan pilih aksi di bawah.",
+                reply_markup=admin_main_menu(),
+            )
+            return
+        elif data == "admin:edit_response:order_created":
+            context.user_data["admin_last_command"] = "order_created"
+            await update.effective_message.reply_text(
+                "✏️ Kirim template pesan untuk order masuk (gunakan placeholder: {nama}, {order_id})"
+            )
+            return
+        elif data == "admin:edit_response:payment_success":
+            context.user_data["admin_last_command"] = "payment_success"
+            await update.effective_message.reply_text(
+                "✏️ Kirim template pesan untuk pembayaran sukses (gunakan placeholder: {order_id})"
+            )
+            return
+        elif data == "admin:preview_responses":
+            config_mgr = context.bot_data.get("custom_config_mgr")
+            order_msg = (
+                await config_mgr.get_config("order_created") if config_mgr else None
+            )
+            payment_msg = (
+                await config_mgr.get_config("payment_success") if config_mgr else None
+            )
+            await update.effective_message.reply_text(
+                f"👁️ Preview Respon:\nOrder Masuk: {order_msg}\nPembayaran Sukses: {payment_msg}"
+            )
+            return
+        elif data == "admin:add_product":
+            await update.effective_message.reply_text("➕ Kirim detail produk baru.")
+            return
+        elif data == "admin:edit_product":
+            await update.effective_message.reply_text(
+                "📝 Kirim ID produk dan detail edit."
+            )
+            return
+        elif data == "admin:delete_product":
+            await update.effective_message.reply_text(
+                "🗑️ Kirim ID produk yang ingin dihapus."
+            )
+            return
+        elif data == "admin:upload_image":
+            await update.effective_message.reply_text(
+                "🖼️ Kirim gambar produk beserta ID produk."
+            )
+            return
+        elif data == "admin:list_orders":
+            await update.effective_message.reply_text(
+                "📋 Daftar order (fitur coming soon)."
+            )
+            return
+        elif data == "admin:update_order":
+            await update.effective_message.reply_text(
+                "🔄 Kirim ID order dan status baru."
+            )
+            return
+        elif data == "admin:list_users":
+            await update.effective_message.reply_text(
+                "👥 Daftar user (fitur coming soon)."
+            )
+            return
+        elif data == "admin:block_user":
+            await update.effective_message.reply_text(
+                "🚫 Kirim ID user yang ingin diblokir."
+            )
+            return
+        elif data == "admin:unblock_user":
+            await update.effective_message.reply_text(
+                "✅ Kirim ID user yang ingin di-unblokir."
+            )
+            return
+        # Submenu navigation
+        elif data == "admin:response_menu":
+            await update.effective_message.reply_text(
+                "🛠 Kelola Respon Bot", reply_markup=admin_response_menu()
+            )
+            return
+        elif data == "admin:product_menu":
+            await update.effective_message.reply_text(
+                "🛒 Kelola Produk", reply_markup=admin_product_menu()
+            )
+            return
+        elif data == "admin:order_menu":
+            await update.effective_message.reply_text(
+                "📦 Kelola Order", reply_markup=admin_order_menu()
+            )
+            return
+        elif data == "admin:user_menu":
+            await update.effective_message.reply_text(
+                "👥 Kelola User", reply_markup=admin_user_menu()
+            )
+            return
+    # --- End Admin Menu Callback Integration ---
 
     cart_manager = get_cart_manager(context)
     cart = await cart_manager.get_cart(user.id)
@@ -209,6 +351,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         else:
             products = await list_products_by_category(slug)
             title = f"Produk {slug}"
+        await handle_product_list(query.message, context, products, title)
+        return
         _store_products(context, products)
         await query.message.reply_text(
             f"{messages.product_list_heading(title)}\n"
@@ -318,7 +462,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
             else:
                 await query.message.reply_text(
-                    invoice_text + "\n\n(⚠️ QR tidak tersedia, gunakan tautan checkout.)",
+                    invoice_text
+                    + "\n\n(⚠️ QR tidak tersedia, gunakan tautan checkout.)",
                     reply_markup=keyboards.invoice_keyboard(payload["payment_url"]),
                 )
             return
@@ -336,13 +481,16 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 def register(application: Application) -> None:
     """Register command, callback, and text handlers."""
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("admin", handle_admin_menu))
     application.add_handler(CallbackQueryHandler(callback_router))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, text_router)
     )
 
 
-def setup_bot_data(application: Application, pakasir_client: PakasirClient, telemetry: TelemetryTracker) -> None:
+def setup_bot_data(
+    application: Application, pakasir_client: PakasirClient, telemetry: TelemetryTracker
+) -> None:
     """Populate application.bot_data with shared services."""
     application.bot_data["cart_manager"] = CartManager()
     application.bot_data["telemetry"] = telemetry
@@ -352,6 +500,15 @@ def setup_bot_data(application: Application, pakasir_client: PakasirClient, tele
         telemetry=telemetry,
     )
     application.bot_data["anti_spam"] = AntiSpamGuard()
+    application.bot_data["refund_calculator_config"] = load_config()
+    # Inisialisasi CustomConfigManager untuk admin config
+    db_adapter = DummyDBAdapter()
+    application.bot_data["custom_config_mgr"] = CustomConfigManager(db_adapter)
+    # Set admin_ids dari konfigurasi
+    settings = get_settings()
+    application.bot_data["admin_ids"] = [
+        str(i) for i in (settings.telegram_admin_ids or [])
+    ]
 
 
 async def _check_spam(
@@ -370,6 +527,298 @@ async def _check_spam(
 
     await _handle_spam(decision, update, context, user, alert_callback=alert_callback)
     return True
+
+
+# --- Refund Calculator Conversation States ---
+(
+    REFUND_HARGA,
+    REFUND_SISA_HARI,
+    REFUND_TOTAL_HARI,
+    REFUND_GARANSI,
+    REFUND_ORDER_ID,
+    REFUND_ORDER_DATE,
+    REFUND_INVOICE_ID,
+) = range(7)
+
+
+async def refund_calculator_start(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    await update.message.reply_text(
+        "🧮 Kalkulator Refund\n\nMasukkan harga langganan (contoh: 10000):"
+    )
+    return REFUND_HARGA
+
+
+async def refund_calculator_harga(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    try:
+        harga = float(update.message.text.strip())
+        context.user_data["refund_harga"] = harga
+        await update.message.reply_text("Masukkan sisa hari langganan (contoh: 15):")
+        return REFUND_SISA_HARI
+    except Exception:
+        await update.message.reply_text(
+            "Format harga tidak valid. Masukkan angka saja."
+        )
+        return REFUND_HARGA
+
+
+async def refund_calculator_sisa_hari(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    try:
+        sisa_hari = int(update.message.text.strip())
+        context.user_data["refund_sisa_hari"] = sisa_hari
+        await update.message.reply_text("Masukkan total hari langganan (contoh: 30):")
+        return REFUND_TOTAL_HARI
+    except Exception:
+        await update.message.reply_text(
+            "Format sisa hari tidak valid. Masukkan angka saja."
+        )
+        return REFUND_SISA_HARI
+
+
+async def refund_calculator_total_hari(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    try:
+        total_hari = int(update.message.text.strip())
+        context.user_data["refund_total_hari"] = total_hari
+        await update.message.reply_text("Berapa kali sudah claim garansi? (contoh: 0):")
+        return REFUND_GARANSI
+    except Exception:
+        await update.message.reply_text(
+            "Format total hari tidak valid. Masukkan angka saja."
+        )
+        return REFUND_TOTAL_HARI
+
+
+async def refund_calculator_garansi(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    try:
+        garansi_claims = int(update.message.text.strip())
+        context.user_data["refund_garansi_claims"] = garansi_claims
+        await update.message.reply_text("Masukkan order_id (boleh dikosongkan):")
+        return REFUND_ORDER_ID
+    except Exception:
+        await update.message.reply_text(
+            "Format jumlah claim garansi tidak valid. Masukkan angka saja."
+        )
+        return REFUND_GARANSI
+
+
+async def refund_calculator_order_id(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    order_id = update.message.text.strip()
+    context.user_data["refund_order_id"] = order_id
+    await update.message.reply_text(
+        "Masukkan order_date (YYYY-MM-DD, boleh dikosongkan):"
+    )
+    return REFUND_ORDER_DATE
+
+
+async def refund_calculator_order_date(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    order_date = update.message.text.strip()
+    context.user_data["refund_order_date"] = order_date
+    await update.message.reply_text("Masukkan invoice_id (boleh dikosongkan):")
+    return REFUND_INVOICE_ID
+
+
+async def refund_calculator_invoice_id(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    invoice_id = update.message.text.strip()
+    user_id = update.effective_user.id if update.effective_user else None
+    harga = context.user_data.get("refund_harga")
+    sisa_hari = context.user_data.get("refund_sisa_hari")
+    total_hari = context.user_data.get("refund_total_hari")
+    garansi_claims = context.user_data.get("refund_garansi_claims", 0)
+    order_id = context.user_data.get("refund_order_id", "")
+    order_date = context.user_data.get("refund_order_date", "")
+    result = calculate_refund(harga, sisa_hari, total_hari, garansi_claims)
+    add_history(
+        order_id=order_id,
+        order_date=order_date,
+        invoice_id=invoice_id,
+        input_data={
+            "harga": harga,
+            "sisa_hari": sisa_hari,
+            "total_hari": total_hari,
+            "garansi_claims": garansi_claims,
+        },
+        result=result,
+        user_id=user_id,
+    )
+    reply = (
+        f"🧮 Hasil Kalkulasi Refund:\n"
+        f"Harga: Rp {harga:,.2f}\n"
+        f"Sisa Hari: {sisa_hari}\n"
+        f"Total Hari: {total_hari}\n"
+        f"Claim Garansi: {garansi_claims}\n"
+        f"Fee: {result['fee']}\n"
+        f"Formula: {result['formula']}\n"
+        f"Refund: Rp {result['refund']:,.2f}\n"
+        f"Catatan: {result['notes']}\n"
+        f"\nOrder ID: {order_id}\nOrder Date: {order_date}\nInvoice ID: {invoice_id}\n"
+        f"\nHistory tersimpan. Untuk cek history, admin bisa gunakan /refund_history."
+    )
+    await update.message.reply_text(reply)
+    return ConversationHandler.END
+
+
+async def refund_calculator_cancel(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    await update.message.reply_text("Kalkulator refund dibatalkan.")
+    return ConversationHandler.END
+
+
+# --- Admin: Set Calculator Config ---
+async def set_calculator_start(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    user_id = update.effective_user.id if update.effective_user else None
+    settings = get_settings()
+    admin_ids = settings.telegram_admin_ids or []
+    if user_id not in admin_ids:
+        await update.message.reply_text(
+            "❌ Hanya admin yang bisa mengubah konfigurasi kalkulator refund."
+        )
+        return ConversationHandler.END
+    await update.message.reply_text(
+        "🛠️ Custom Kalkulator Refund\n"
+        "Kirim JSON config baru untuk kalkulator refund.\n"
+        "Contoh:\n"
+        "{\n"
+        '  "refund_formula": "(harga * sisa_hari / total_hari) * fee",\n'
+        '  "fee_rules": [ ... ],\n'
+        '  "notes": "Penjelasan ..."\n'
+        "}\n"
+        "Kirim di satu pesan."
+    )
+    return 0
+
+
+async def set_calculator_config(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    user_id = update.effective_user.id if update.effective_user else None
+    settings = get_settings()
+    admin_ids = settings.telegram_admin_ids or []
+    if user_id not in admin_ids:
+        await update.message.reply_text(
+            "❌ Hanya admin yang bisa mengubah konfigurasi kalkulator refund."
+        )
+        return ConversationHandler.END
+    try:
+        new_config = json.loads(update.message.text)
+        update_config(new_config)
+        await update.message.reply_text(
+            "✅ Konfigurasi kalkulator refund berhasil diupdate."
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Gagal update config: {e}")
+    return ConversationHandler.END
+
+
+# --- Admin: Refund History ---
+async def refund_history_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    user_id = update.effective_user.id if update.effective_user else None
+    settings = get_settings()
+    admin_ids = settings.telegram_admin_ids or []
+    if user_id not in admin_ids:
+        await update.message.reply_text(
+            "❌ Hanya admin yang bisa melihat history kalkulator refund."
+        )
+        return
+    args = context.args
+    order_id = args[0] if args else None
+    history = get_history(order_id=order_id)
+    if not history:
+        await update.message.reply_text(
+            "Tidak ada history refund untuk order_id tersebut."
+        )
+        return
+    reply = "📜 Refund History:\n"
+    for entry in history[-10:]:
+        reply += (
+            f"- Order ID: {entry.get('order_id')}\n"
+            f"  Invoice ID: {entry.get('invoice_id')}\n"
+            f"  Date: {entry.get('order_date')}\n"
+            f"  Refund: Rp {entry['result']['refund']:,.2f}\n"
+            f"  Input: {entry['input']}\n"
+            f"  Time: {entry.get('timestamp')}\n"
+        )
+    await update.message.reply_text(reply)
+
+
+def register(application: Application) -> None:
+    """Register command, callback, and text handlers."""
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(callback_router))
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, text_router)
+    )
+    # Refund calculator conversation
+    refund_calc_conv = ConversationHandler(
+        entry_points=[CommandHandler("refund_calculator", refund_calculator_start)],
+        states={
+            REFUND_HARGA: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, refund_calculator_harga)
+            ],
+            REFUND_SISA_HARI: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, refund_calculator_sisa_hari
+                )
+            ],
+            REFUND_TOTAL_HARI: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, refund_calculator_total_hari
+                )
+            ],
+            REFUND_GARANSI: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, refund_calculator_garansi
+                )
+            ],
+            REFUND_ORDER_ID: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, refund_calculator_order_id
+                )
+            ],
+            REFUND_ORDER_DATE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, refund_calculator_order_date
+                )
+            ],
+            REFUND_INVOICE_ID: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, refund_calculator_invoice_id
+                )
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", refund_calculator_cancel)],
+    )
+    application.add_handler(refund_calc_conv)
+    # Set calculator config (admin only)
+    set_calc_conv = ConversationHandler(
+        entry_points=[CommandHandler("set_calculator", set_calculator_start)],
+        states={
+            0: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_calculator_config)],
+        },
+        fallbacks=[],
+    )
+    application.add_handler(set_calc_conv)
+    # Refund history (admin only)
+    application.add_handler(CommandHandler("refund_history", refund_history_command))
 
 
 async def _handle_spam(

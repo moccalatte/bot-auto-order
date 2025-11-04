@@ -6,7 +6,7 @@
 - `project_rules.md` – aturan struktur proyek, observability, dan praktik kolaborasi.
 
 ## Ringkasan
-Bot Telegram auto-order untuk toko digital dengan pembayaran terhubung Pakasir. Menggunakan bahasa Indonesia baku bernuansa santai; setiap respons bot wajib kaya emoji agar terasa hidup. Admin dapat mengelola produk, kategori, dan pesan balasan kustom langsung dari bot.
+Bot Telegram auto-order untuk toko digital dengan pembayaran terhubung Pakasir. Menggunakan bahasa Indonesia baku bernuansa santai; setiap respons bot wajib kaya emoji agar terasa hidup. Admin dapat mengelola produk, kategori, pesan balasan kustom, dan konfigurasi utama bot langsung dari menu Telegram tanpa akses ke codebase.
 
 ## Tujuan
 - Mempermudah pembeli memesan produk digital via Telegram secara mandiri.
@@ -15,35 +15,36 @@ Bot Telegram auto-order untuk toko digital dengan pembayaran terhubung Pakasir. 
 
 ## Target Pengguna
 - **Pembeli**: pengguna Telegram yang ingin membeli produk digital dengan proses cepat dan jelas.
-- **Admin**: pemilik toko yang mengatur katalog, stok, harga, kupon, dan saldo pengguna.
+- **Admin**: pemilik toko yang mengatur katalog, stok, harga, kupon, saldo pengguna, serta kustomisasi respon bot dan pengaturan utama melalui menu admin Telegram.
 
 ## Ruang Lingkup Fitur
 1. **Onboarding `/start`**  
    - Pesan sambutan bergaya emoji dan menyertakan statistik total user & transaksi.  
-   - Inline keyboard kategori (termasuk `🧭 Semua Produk`) dan ReplyKeyboard utama (`📋 List Produk`, `📦 Semua Produk`, `📊 Cek Stok`, `1️⃣`, `2️⃣`, `3️⃣`, dst).
+   - Inline keyboard kategori (termasuk 🧭 Semua Produk) dan ReplyKeyboard utama (📋 List Produk, 📦 Semua Produk, 📊 Cek Stok, 1️⃣, 2️⃣, 3️⃣, dst).
 2. **Navigasi Produk**  
    - Inline keyboard menampilkan kategori serta daftar produk menurut `early_plan.md`.  
-   - Format setiap produk memuat nama, harga, stok, total penjualan, emoji tematik (mis. `🔥`, `🎟️`, `💾`).
+   - Format setiap produk memuat nama, harga, stok, total penjualan, emoji tematik (mis. 🔥, 🎟️, 💾).
 3. **Detail Produk & Cart**  
-   - Pesan detail produk memuat harga, stok, kategori dengan emoji (contoh: `🛒`, `💲`, `📦`).  
-   - Inline keyboard tindakan (`➖`, `➕`, `🧺 Lanjut ke Keranjang`, `❌ Batal`) dan opsi kuantitas (`✌️ x2`, `🖐️ x5`, `🔟 x10`).
+   - Pesan detail produk memuat harga, stok, kategori dengan emoji (contoh: 🛒, 💲, 📦).  
+   - Inline keyboard tindakan (➖, ➕, 🧺 Lanjut ke Keranjang, ❌ Batal) dan opsi kuantitas (✌️ x2, 🖐️ x5, 🔟 x10).
 4. **Keranjang Belanja**  
-   - Ringkasan item dengan pembuka emoji (`⛺`, `🧾`) dan peringatan pembayaran (`🚫`).  
-   - Inline keyboard (`🎟️ Gunakan Kupon`, `💳 Lanjut ke Pembayaran`, `❌ Batal`).
+   - Ringkasan item dengan pembuka emoji (⛺, 🧾) dan peringatan pembayaran (🚫).  
+   - Inline keyboard (🎟️ Gunakan Kupon, 💳 Lanjut ke Pembayaran, ❌ Batal).
 5. **Pembayaran via Pakasir**  
-   - Langkah memilih metode (`🧊 Silakan Pilih Metode Pembayaran`) dengan tombol `💠 QRIS`, `💼 Saldo`, `❌ Batalkan`.  
+   - Langkah memilih metode (🧊 Silakan Pilih Metode Pembayaran) dengan tombol 💠 QRIS, 💼 Saldo, ❌ Batalkan.  
    - Integrasi API Pakasir `transactioncreate` (metode `qris`) atau URL `https://pots.my.id/pay/{slug}/{amount}?order_id={order_id}&qris_only=1`.  
-   - Penanganan loading (`🎲 Sedang memuat...`) dan invoice sukses (`🏷️ Invoice Berhasil Dibuat`).  
-   - Pengelolaan kadaluarsa: hapus pesan invoice, kirim stiker, dan notifikasi `📜 Tagihan Kadaluarsa`.
+   - Penanganan loading (🎲 Sedang memuat...) dan invoice sukses (🏷️ Invoice Berhasil Dibuat).  
+   - Pengelolaan kadaluarsa: hapus pesan invoice, kirim stiker, dan notifikasi 📝 Tagihan Kadaluarsa.
 6. **Saldo & Deposit**  
-   - Reply keyboard `💼 Deposit` untuk opsi manual (admin input) atau otomatis via Pakasir.  
-   - Riwayat saldo ditampilkan dengan emoji status (`✅`, `⏳`, `❌`).
+   - Reply keyboard 💼 Deposit untuk opsi manual (admin input) atau otomatis via Pakasir.  
+   - Riwayat saldo ditampilkan dengan emoji status (✅, ⏳, ❌).
 7. **Kupon & Diskon**  
-   - Opsi `🎟️ Gunakan Kupon` sebelum pembayaran, validasi langsung di bot.
-8. **Admin Tools**  
-   - Pembuatan kategori, produk, stok, harga, dan deskripsi.  
-   - Pengaturan ReplyKeyboard kustom beserta jawaban (contoh `📘 Cara Order`).  
-   - Dashboard ringkas via command admin (`/admin`, `⚙️ Pengaturan`).
+   - Opsi 🎟️ Gunakan Kupon sebelum pembayaran, validasi langsung di bot.
+8. **Admin Tools & Customization**  
+   - Menu admin Telegram untuk kelola respon bot (template pesan event), produk (CRUD & upload gambar), order (lihat & update status), dan user (blokir/unblokir, lihat riwayat).
+   - Fitur preview sebelum publish, validasi placeholder (misal: {nama}, {order_id}), backup & restore konfigurasi, serta audit log setiap perubahan.
+   - Semua perubahan konfigurasi disimpan di database, bukan hardcode.
+   - Dashboard ringkas via command admin (`/admin`, ⚙️ Pengaturan).
 
 ## Alur Pengguna (Ringkas)
 1. `User` kirim `/start` → Bot kirim sambutan emoji + statistik + inline kategori dan reply keyboard utama.
@@ -58,12 +59,14 @@ Bot Telegram auto-order untuk toko digital dengan pembayaran terhubung Pakasir. 
 
 ## Persyaratan Fungsional
 - Autentikasi admin via daftar Telegram ID pada konfigurasi.
-- Penyimpanan data produk, kategori, kupon, dan transaksi (gunakan storage sesuai arsitektur lanjutan).
+- Penyimpanan data produk, kategori, kupon, transaksi, dan seluruh konfigurasi kustom admin (template pesan, menu, dsb) di database, bukan hardcode.
+- Menu admin Telegram memungkinkan admin mengubah template pesan event, kelola produk/order/user, preview sebelum publish, backup & restore konfigurasi, serta audit log.
+- Validasi input admin sebelum disimpan, termasuk validasi placeholder pada template pesan.
 - Integrasi API Pakasir:
   - Wajib menyimpan `slug`, `api_key`, dan `PAKASIR_PUBLIC_DOMAIN` dalam konfigurasi aman.
   - Mendukung mode sandbox dengan endpoint `paymentsimulation`.
   - Menyimpan `order_id` unik (format `tg{telegram_id}-{timestamp/random}`) untuk korelasi webhook.
-- Logging interaksi dan error di folder `logs/bot-order/YYYY-MM-DD.log`.
+- Logging interaksi, error, dan perubahan konfigurasi di folder `logs/bot-order/YYYY-MM-DD.log`.
 - Penanganan error:
   - Jika API Pakasir gagal, tampilkan pesan `⚠️` ke user dan log detail error.
   - Timeout invoice → hapus pesan dan kirim info kadaluarsa sesuai `early_plan.md`.
@@ -84,18 +87,22 @@ Bot Telegram auto-order untuk toko digital dengan pembayaran terhubung Pakasir. 
   - Format log `[timestamp] [level] message`.
   - Simpan log di `logs/telegram-bot/{date}.log`.
   - Catat metrik ringan (jumlah transaksi, error rate) setiap interval yang wajar.
+  - Audit log seluruh perubahan konfigurasi admin (customization, backup/restore, dsb).
 - **Struktur Proyek**:
-  - `src/` untuk kode utama (mis. `src/bot/`, `src/services/pakasir.py`, `src/core/config.py`).
+  - `src/` untuk kode utama (mis. `src/bot/`, `src/bot/admin/`, `src/core/custom_config.py`, `src/services/pakasir.py`, `src/core/config.py`).
   - `logs/` sesuai aturan.
-  - `tests/` untuk skenario minimal (mock API Pakasir).
+  - `tests/` untuk skenario minimal (mock API Pakasir dan custom config).
   - Gunakan virtual environment (Python 3.12+) dan `requirements.txt`.
 - **Keandalan**:
   - Semua command bot harus memiliki timeout & fallback pesan `🤖 Maaf, sistem sedang sibuk...`.
   - Hindari loop tanpa jeda; isi dengan `asyncio.sleep`.
   - Idempotensi pada webhook (cek `order_id` sebelum membuat entri baru).
+  - Bot dapat rollback ke konfigurasi default jika terjadi error pada konfigurasi kustom.
 - **Keamanan**:
   - Simpan kredensial Pakasir via environment (`PAKASIR_PROJECT_SLUG`, `PAKASIR_API_KEY`, `PAKASIR_WEBHOOK_SECRET`).
   - Validasi payload webhook menggunakan signature bila tersedia.
+  - Data pribadi buyer/seller dijaga privasinya, hanya admin yang berwenang bisa mengakses.
+  - Owner memiliki akses audit penuh dan bisa override jika terjadi masalah.
 
 ## Dependensi & Setup (High-Level)
 - Bahasa: Python 3.12 (stabil terbaru).  
@@ -157,9 +164,10 @@ Bot Telegram auto-order untuk toko digital dengan pembayaran terhubung Pakasir. 
 1. Setup kerangka bot + struktur proyek sesuai `project_rules.md`.
 2. Implementasi alur `/start`, daftar produk, detail, dan keranjang.
 3. Integrasi Pakasir (sandbox) + webhook.
-4. Implementasi admin tools & custom reply.
-5. Observability (logging & metrik dasar) + dokumentasi README.
+4. Implementasi admin tools & fitur kustomisasi bot oleh admin (menu Telegram, backup/restore, validasi, audit log).
+5. Observability (logging, audit, metrik dasar) + dokumentasi README.
 
 ---
 
-> Catatan: Dokumen ini menjadi dasar implementasi awal. Perubahan selanjutnya wajib menjaga konsistensi dengan `early_plan.md`, `pakasir.md`, dan `project_rules.md`.
+> Catatan: Dokumen ini menjadi dasar implementasi awal. Perubahan selanjutnya wajib menjaga konsistensi dengan `early_plan.md`, `pakasir.md`, dan `project_rules.md`.  
+> Fitur kustomisasi admin, backup/restore, validasi, audit, dan menu admin Telegram wajib dipertahankan sesuai best practice dan aturan project_rules.md.

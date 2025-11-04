@@ -15,6 +15,7 @@ def main_reply_keyboard(product_numbers: Sequence[int]) -> ReplyKeyboardMarkup:
     keyboard = [
         ["📋 List Produk", "📦 Semua Produk"],
         ["📊 Cek Stok", "💼 Deposit"],
+        ["🧮 Calculator"],  # Tambahkan tombol Calculator
         numbers_row,
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -42,7 +43,9 @@ def category_inline_keyboard(categories: Iterable[Category]) -> InlineKeyboardMa
     return InlineKeyboardMarkup(buttons)
 
 
-def product_inline_keyboard(product: Product, quantity: int = 0) -> InlineKeyboardMarkup:
+def product_inline_keyboard(
+    product: Product, quantity: int = 0
+) -> InlineKeyboardMarkup:
     """Inline keyboard for product detail with quantity controls."""
     buttons = [
         [
@@ -53,15 +56,25 @@ def product_inline_keyboard(product: Product, quantity: int = 0) -> InlineKeyboa
     if quantity > 0:
         buttons.append(
             [
-                InlineKeyboardButton(text="✌️ x2", callback_data=f"cart:set:{product.id}:2"),
-                InlineKeyboardButton(text="🖐️ x5", callback_data=f"cart:set:{product.id}:5"),
-                InlineKeyboardButton(text="🔟 x10", callback_data=f"cart:set:{product.id}:10"),
+                InlineKeyboardButton(
+                    text="✌️ x2", callback_data=f"cart:set:{product.id}:2"
+                ),
+                InlineKeyboardButton(
+                    text="🖐️ x5", callback_data=f"cart:set:{product.id}:5"
+                ),
+                InlineKeyboardButton(
+                    text="🔟 x10", callback_data=f"cart:set:{product.id}:10"
+                ),
             ]
         )
     buttons.append(
         [
-            InlineKeyboardButton(text="🧺 Lanjut ke Keranjang", callback_data="cart:checkout"),
-            InlineKeyboardButton(text="❌ Batal", callback_data=f"cart:cancel:{product.id}"),
+            InlineKeyboardButton(
+                text="🧺 Lanjut ke Keranjang", callback_data="cart:checkout"
+            ),
+            InlineKeyboardButton(
+                text="❌ Batal", callback_data=f"cart:cancel:{product.id}"
+            ),
         ]
     )
     return InlineKeyboardMarkup(buttons)
@@ -72,8 +85,12 @@ def cart_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton(text="🎟️ Gunakan Kupon", callback_data="cart:coupon"),
-                InlineKeyboardButton(text="💳 Lanjut ke Pembayaran", callback_data="cart:pay"),
+                InlineKeyboardButton(
+                    text="🎟️ Gunakan Kupon", callback_data="cart:coupon"
+                ),
+                InlineKeyboardButton(
+                    text="💳 Lanjut ke Pembayaran", callback_data="cart:pay"
+                ),
             ],
             [InlineKeyboardButton(text="❌ Batal", callback_data="cart:clear")],
         ]
@@ -88,7 +105,11 @@ def payment_method_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="💠 QRIS", callback_data="pay:qris"),
                 InlineKeyboardButton(text="💼 Saldo", callback_data="pay:balance"),
             ],
-            [InlineKeyboardButton(text="❌ Batalkan Pembelian", callback_data="pay:cancel")],
+            [
+                InlineKeyboardButton(
+                    text="❌ Batalkan Pembelian", callback_data="pay:cancel"
+                )
+            ],
         ]
     )
 
@@ -98,6 +119,10 @@ def invoice_keyboard(payment_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(text="🔗 Checkout URL", url=payment_url)],
-            [InlineKeyboardButton(text="❌ Batalkan Pembelian", callback_data="pay:cancel")],
+            [
+                InlineKeyboardButton(
+                    text="❌ Batalkan Pembelian", callback_data="pay:cancel"
+                )
+            ],
         ]
     )
