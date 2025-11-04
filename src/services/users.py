@@ -39,6 +39,52 @@ async def upsert_user(
     return int(row["id"])
 
 
+async def list_users(limit: int = 50) -> list:
+    """List semua user."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM users ORDER BY created_at DESC LIMIT $1;", limit
+        )
+    return [dict(row) for row in rows]
+
+
+async def block_user(user_id: int) -> None:
+    """Blokir user."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE;"
+        )
+        await conn.execute(
+            """
+            UPDATE users
+            SET is_blocked = TRUE,
+                updated_at = NOW()
+            WHERE id = $1;
+            """,
+            user_id,
+        )
+
+
+async def unblock_user(user_id: int) -> None:
+    """Unblokir user."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE;"
+        )
+        await conn.execute(
+            """
+            UPDATE users
+            SET is_blocked = FALSE,
+                updated_at = NOW()
+            WHERE id = $1;
+            """,
+            user_id,
+        )
+
+
 async def update_balance(user_id: int, amount_cents: int) -> None:
     """Adjust user balance by `amount_cents`."""
     pool = await get_pool()
@@ -52,3 +98,28 @@ async def update_balance(user_id: int, amount_cents: int) -> None:
         user_id,
         amount_cents,
     )
+
+
+async def is_user_blocked(
+    *,
+    user_id: int | None = None,
+    telegram_id: int | None = None,
+) -> bool:
+    """Check whether user is blocked."""
+    if user_id is None and telegram_id is None:
+        raise ValueError("Provide user_id atau telegram_id.")
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE;"
+        )
+        if user_id is not None:
+            row = await conn.fetchrow(
+                "SELECT is_blocked FROM users WHERE id = $1 LIMIT 1;", user_id
+            )
+        else:
+            row = await conn.fetchrow(
+                "SELECT is_blocked FROM users WHERE telegram_id = $1 LIMIT 1;",
+                telegram_id,
+            )
+    return bool(row["is_blocked"]) if row else False

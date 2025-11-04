@@ -98,6 +98,51 @@ async def list_products(limit: int = 50) -> List[Product]:
     return products
 
 
+async def add_product(
+    category_id: int,
+    code: str,
+    name: str,
+    description: str,
+    price_cents: int,
+    stock: int,
+) -> int:
+    """Tambah produk baru ke database."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO products (category_id, code, name, description, price_cents, stock)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id;
+            """,
+            category_id,
+            code,
+            name,
+            description,
+            price_cents,
+            stock,
+        )
+    return row["id"]
+
+
+async def edit_product(product_id: int, **fields) -> None:
+    """Edit produk di database."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        sets = ", ".join([f"{k} = ${i + 2}" for i, k in enumerate(fields.keys())])
+        values = [product_id] + list(fields.values())
+        await conn.execute(
+            f"UPDATE products SET {sets}, updated_at = NOW() WHERE id = $1;", *values
+        )
+
+
+async def delete_product(product_id: int) -> None:
+    """Hapus produk dari database."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM products WHERE id = $1;", product_id)
+
+
 async def list_products_by_category(category_slug: str) -> Sequence[Product]:
     """Return products filtered by category slug."""
     pool = await get_pool()

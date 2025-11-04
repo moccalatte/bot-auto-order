@@ -18,11 +18,11 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
 
 ## Fitur Utama
 - **Menu Admin Telegram**: Admin dapat mengakses menu khusus untuk:
-  - Kelola respon/template pesan bot (order masuk, pembayaran, dsb) langsung dari Telegram.
-  - CRUD produk dan upload gambar.
+  - Melihat (preview) template pesan bot yang aktif.
+  - CRUD produk (tanpa unggah gambar).
   - Kelola order (lihat, update status).
   - Kelola user (lihat, blokir/unblokir).
-- **Kustomisasi Respon Bot**: Template pesan dapat diubah admin, dengan preview dan validasi placeholder (`{nama}`, `{order_id}`, dll).
+- **Kustomisasi Respon Bot**: Template pesan hanya bisa **dipreview** melalui menu admin; perubahan dilakukan oleh owner melalui pipeline terkontrol dengan validasi placeholder (`{nama}`, `{order_id}`, dll).
 - **Backup & Restore Konfigurasi**: Semua perubahan disimpan di database, dapat dibackup dan direstore oleh admin.
 - **Audit Log**: Setiap perubahan konfigurasi tercatat untuk audit owner.
 - **Validasi Input**: Semua input admin divalidasi sebelum disimpan.
@@ -63,16 +63,22 @@ BOT_STORE_NAME=Bot Auto Order
   createdb bot_order
   psql bot_order -f scripts/schema.sql
   ```
-- **Wajib:** Jalankan bot (mode polling):
+- **Wajib (produksi, semua layanan sekaligus):**
+  ```bash
+  export TELEGRAM_WEBHOOK_URL=https://example.com/telegram
+  export PAKASIR_HOST=0.0.0.0        # opsional
+  export PAKASIR_PORT=9000           # opsional
+  bash scripts/run_stack.sh
+  ```
+  Perintah di atas menjalankan bot Telegram dalam mode webhook **dan** server webhook Pakasir dalam satu proses shell (cocok untuk 1 VPS yang menampung beberapa bot).
+
+- **Alternatif (mode polling, hanya bot):**
   ```bash
   python -m src.main
   ```
-- **Opsional:** Jalankan webhook server:
+- **Alternatif (jalankan manual terpisah):**
   ```bash
   python -m src.main --webhook --webhook-url https://example.com/telegram
-  ```
-- **Opsional:** Jalankan server webhook Pakasir:
-  ```bash
   python -m src.server --host 0.0.0.0 --port 9000
   ```
 
@@ -101,10 +107,10 @@ BOT_STORE_NAME=Bot Auto Order
 
 ## Cara Kustomisasi Bot oleh Admin
 1. Admin kirim `/admin` di Telegram untuk membuka menu admin.
-2. Pilih submenu: Kelola Respon Bot, Produk, Order, atau User.
-3. Untuk kustomisasi respon, pilih template yang ingin diubah, edit, dan preview sebelum publish.
-4. Semua perubahan divalidasi (placeholder, format) dan disimpan di database.
-5. Admin dapat backup/restore konfigurasi dari menu admin.
+2. Pilih submenu: Kelola Respon Bot (preview saja), Produk, Order, atau User.
+3. Ikuti instruksi yang muncul (format input ditampilkan pada setiap aksi).
+4. Perubahan template dilakukan oleh owner; admin hanya dapat melakukan preview untuk memastikan pesan yang sedang aktif.
+5. Setiap perubahan data (produk/order/user) divalidasi sebelum disimpan.
 6. Owner dapat audit semua perubahan melalui log.
 
 ## Rollback & Recovery

@@ -14,7 +14,6 @@ from telegram.ext import (
     ContextTypes,
     MessageHandler,
     filters,
-    ConversationHandler,
 )
 
 from src.bot.antispam import AntiSpamDecision, AntiSpamGuard
@@ -22,8 +21,29 @@ from src.bot import keyboards, messages
 from src.core.config import get_settings
 from src.core.currency import format_rupiah
 from src.core.qr import qris_to_image
-from src.core.custom_config import CustomConfigManager, DummyDBAdapter
+from src.core.custom_config import (
+    CustomConfigManager,
+    PostgresConfigAdapter,
+    DummyDBAdapter,
+)
 from src.bot.admin.admin_menu import handle_admin_menu
+from src.bot.admin.admin_actions import (
+    AdminActionError,
+    handle_add_product_input,
+    handle_block_user_input,
+    handle_delete_product_input,
+    handle_edit_product_input,
+    handle_update_order_input,
+    list_categories_overview,
+    render_order_overview,
+    render_product_overview,
+    render_user_overview,
+)
+from src.bot.admin.admin_state import (
+    clear_admin_state,
+    get_admin_state,
+    set_admin_state,
+)
 from src.core.telemetry import TelemetryTracker
 from src.services.cart import Cart, CartManager
 from src.services.catalog import (
@@ -44,6 +64,7 @@ from src.services.calculator import (
     get_history,
     update_config,
 )
+from src.services.users import is_user_blocked
 
 
 logger = logging.getLogger(__name__)
@@ -162,12 +183,112 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     text = (update.message.text or "").strip()
+    admin_ids = context.bot_data.get("admin_ids", [])
+    user = update.effective_user
+    user_id_str = str(user.id) if user else ""
+    is_admin = user_id_str in admin_ids
 
-    if text in ("📋 List Produk", "📦 Semua Produk"):
-        products = await list_products()
-        await handle_product_list(update.message, context, products, "Semua Produk")
+    if is_admin:
+        state = get_admin_state(context.user_data)
+        if state:
+            try:
+                if state.action == "add_product":
+                    response = await handle_add_product_input(text, user.id)  # type: ignore[arg-type]
+                elif state.action == "edit_product":
+                    response = await handle_edit_product_input(text, user.id)  # type: ignore[arg-type]
+                elif state.action == "delete_product":
+                    response = await handle_delete_product_input(text, user.id)  # type: ignore[arg-type]
+                elif state.action == "update_order":
+                    response = await handle_update_order_input(text, user.id)  # type: ignore[arg-type]
+                elif state.action == "block_user":
+                    response = await handle_block_user_input(text, user.id)  # type: ignore[arg-type]
+                elif state.action == "unblock_user":
+                    response = await handle_block_user_input(
+                        text,
+                        user.id,  # type: ignore[arg-type]
+                        unblock=state.payload.get("unblock", False),
+                    )
+                else:
+                    response = "⚠️ Aksi admin tidak dikenali."
+                    clear_admin_state(context.user_data)
+                    await update.message.reply_text(response)
+                    return
+            except AdminActionError as exc:
+                await update.message.reply_text(f"❌ {exc}")
+                return
+            except Exception as exc:  # pragma: no cover - unexpected
+                logger.exception("Gagal memproses aksi admin %s: %s", state.action, exc)
+                clear_admin_state(context.user_data)
+                await update.message.reply_text(
+                    "⚠️ Terjadi kesalahan internal, coba lagi."
+                )
+                return
+            clear_admin_state(context.user_data)
+            await update.message.reply_text(response)
+            return
+
+    # Hapus akses menu produk lama dari admin, hanya gunakan menu settings baru
+    if text == "⚙️ Admin Settings":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
+        from src.bot.admin.admin_menu import admin_main_menu
+
+        await update.message.reply_text(
+            "⚙️ Admin Settings:\nSilakan pilih aksi di bawah.",
+            reply_markup=admin_main_menu(),
+        )
         return
+    # Submenu admin settings
+    if text == "🛠 Kelola Respon Bot":
+        from src.bot.admin.admin_menu import admin_response_menu
 
+        await update.message.reply_text(
+            "🛠 Kelola Respon Bot", reply_markup=admin_response_menu()
+        )
+        return
+    if text == "🛒 Kelola Produk":
+        from src.bot.admin.admin_menu import admin_product_menu
+
+        await update.message.reply_text(
+            "🛒 Kelola Produk", reply_markup=admin_product_menu()
+        )
+        return
+    if text == "📦 Kelola Order":
+        from src.bot.admin.admin_menu import admin_order_menu
+
+        await update.message.reply_text(
+            "📦 Kelola Order", reply_markup=admin_order_menu()
+        )
+        return
+    if text == "👥 Kelola User":
+        from src.bot.admin.admin_menu import admin_user_menu
+
+        await update.message.reply_text(
+            "👥 Kelola User", reply_markup=admin_user_menu()
+        )
+        return
+    if text == "⬅️ Kembali ke Admin Settings":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
+        from src.bot.admin.admin_menu import admin_main_menu
+
+        await update.message.reply_text(
+            "⚙️ Admin Settings:\nSilakan pilih aksi di bawah.",
+            reply_markup=admin_main_menu(),
+        )
+        return
+    if text == "⬅️ Kembali ke Menu Utama":
+        products: Sequence[Product] = context.user_data.get("product_list", [])
+        if not products:
+            products = await list_products()
+        context.user_data["product_list"] = products
+        reply_keyboard = keyboards.main_reply_keyboard(range(1, min(len(products), 6)))
+        await update.message.reply_text(
+            "🏠 Kembali ke menu utama.", reply_markup=reply_keyboard
+        )
+        return
     if text == "📊 Cek Stok":
         products = await list_products(limit=10)
         lines = [
@@ -242,24 +363,13 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             admin_product_menu,
             admin_order_menu,
             admin_user_menu,
+            admin_main_menu,
         )
 
         if data == "admin:back":
             await update.effective_message.reply_text(
-                "⚙️ Menu Admin:\nSilakan pilih aksi di bawah.",
+                "⚙️ Admin Settings:\nSilakan pilih aksi di bawah.",
                 reply_markup=admin_main_menu(),
-            )
-            return
-        elif data == "admin:edit_response:order_created":
-            context.user_data["admin_last_command"] = "order_created"
-            await update.effective_message.reply_text(
-                "✏️ Kirim template pesan untuk order masuk (gunakan placeholder: {nama}, {order_id})"
-            )
-            return
-        elif data == "admin:edit_response:payment_success":
-            context.user_data["admin_last_command"] = "payment_success"
-            await update.effective_message.reply_text(
-                "✏️ Kirim template pesan untuk pembayaran sukses (gunakan placeholder: {order_id})"
             )
             return
         elif data == "admin:preview_responses":
@@ -275,44 +385,50 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return
         elif data == "admin:add_product":
-            await update.effective_message.reply_text("➕ Kirim detail produk baru.")
+            set_admin_state(context.user_data, "add_product")
+            categories_text = await list_categories_overview()
+            await update.effective_message.reply_text(
+                "➕ Format tambah produk:\n"
+                "kategori_id|kode|nama|harga|stok|deskripsi\n"
+                "Catatan: unggah gambar dikurasi terpisah oleh owner jika diperlukan.\n\n"
+                f"{categories_text}"
+            )
             return
         elif data == "admin:edit_product":
+            set_admin_state(context.user_data, "edit_product")
             await update.effective_message.reply_text(
-                "📝 Kirim ID produk dan detail edit."
+                "📝 Format edit: produk_id|field=value,field=value\n"
+                "Field: name, description, price, stock, code, category_id."
             )
             return
         elif data == "admin:delete_product":
+            set_admin_state(context.user_data, "delete_product")
             await update.effective_message.reply_text(
                 "🗑️ Kirim ID produk yang ingin dihapus."
             )
             return
-        elif data == "admin:upload_image":
-            await update.effective_message.reply_text(
-                "🖼️ Kirim gambar produk beserta ID produk."
-            )
-            return
         elif data == "admin:list_orders":
-            await update.effective_message.reply_text(
-                "📋 Daftar order (fitur coming soon)."
-            )
+            overview = await render_order_overview()
+            await update.effective_message.reply_text(overview)
             return
         elif data == "admin:update_order":
+            set_admin_state(context.user_data, "update_order")
             await update.effective_message.reply_text(
                 "🔄 Kirim ID order dan status baru."
             )
             return
         elif data == "admin:list_users":
-            await update.effective_message.reply_text(
-                "👥 Daftar user (fitur coming soon)."
-            )
+            overview = await render_user_overview()
+            await update.effective_message.reply_text(overview)
             return
         elif data == "admin:block_user":
+            set_admin_state(context.user_data, "block_user")
             await update.effective_message.reply_text(
                 "🚫 Kirim ID user yang ingin diblokir."
             )
             return
         elif data == "admin:unblock_user":
+            set_admin_state(context.user_data, "unblock_user", unblock=True)
             await update.effective_message.reply_text(
                 "✅ Kirim ID user yang ingin di-unblokir."
             )
@@ -324,16 +440,22 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return
         elif data == "admin:product_menu":
+            overview = await render_product_overview()
+            await update.effective_message.reply_text(overview)
             await update.effective_message.reply_text(
                 "🛒 Kelola Produk", reply_markup=admin_product_menu()
             )
             return
         elif data == "admin:order_menu":
+            overview = await render_order_overview()
+            await update.effective_message.reply_text(overview)
             await update.effective_message.reply_text(
                 "📦 Kelola Order", reply_markup=admin_order_menu()
             )
             return
         elif data == "admin:user_menu":
+            overview = await render_user_overview()
+            await update.effective_message.reply_text(overview)
             await update.effective_message.reply_text(
                 "👥 Kelola User", reply_markup=admin_user_menu()
             )
@@ -502,8 +624,15 @@ def setup_bot_data(
     application.bot_data["anti_spam"] = AntiSpamGuard()
     application.bot_data["refund_calculator_config"] = load_config()
     # Inisialisasi CustomConfigManager untuk admin config
-    db_adapter = DummyDBAdapter()
-    application.bot_data["custom_config_mgr"] = CustomConfigManager(db_adapter)
+    try:
+        config_adapter = PostgresConfigAdapter()
+        application.bot_data["custom_config_mgr"] = CustomConfigManager(config_adapter)
+        logger.info("CustomConfigManager terhubung ke Postgres.")
+    except Exception as exc:  # pragma: no cover - fallback path
+        logger.exception("Gagal menginisialisasi PostgresConfigAdapter: %s", exc)
+        application.bot_data["custom_config_mgr"] = CustomConfigManager(
+            DummyDBAdapter()
+        )
     # Set admin_ids dari konfigurasi
     settings = get_settings()
     application.bot_data["admin_ids"] = [
@@ -520,6 +649,16 @@ async def _check_spam(
     user = update.effective_user
     if user is None:
         return False
+    try:
+        if await is_user_blocked(telegram_id=user.id):
+            message = update.effective_message
+            if message:
+                await message.reply_text(
+                    "❌ Akun kamu sedang diblokir oleh admin. Hubungi admin untuk bantuan."
+                )
+            return True
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("Gagal mengecek status blokir user %s: %s", user.id, exc)
     anti_spam = get_anti_spam(context)
     decision = await anti_spam.register_action(user.id)
     if decision.allowed:

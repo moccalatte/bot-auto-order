@@ -1,4 +1,3 @@
-bot - auto - order / src / bot / admin / admin_menu.py  # L1-98
 """Admin menu & customization handler for Telegram bot (custom_plan.md)."""
 
 from __future__ import annotations
@@ -33,10 +32,12 @@ def save_admin_config(user_id: int, config: Dict[str, Any]) -> None:
 
 
 def admin_main_menu() -> ReplyKeyboardMarkup:
-    """Build main admin menu keyboard."""
+    """Menu utama admin: ⚙️ Admin Settings (hanya untuk admin)."""
     keyboard = [
-        ["🛠 Kelola Respon Bot", "🛒 Kelola Produk"],
-        ["📦 Kelola Order", "👥 Kelola User"],
+        ["🛠 Kelola Respon Bot"],
+        ["🛒 Kelola Produk"],
+        ["📦 Kelola Order"],
+        ["👥 Kelola User"],
         ["⬅️ Kembali ke Menu Utama"],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -45,18 +46,6 @@ def admin_main_menu() -> ReplyKeyboardMarkup:
 def admin_response_menu() -> InlineKeyboardMarkup:
     """Menu untuk kustomisasi respon bot."""
     buttons = [
-        [
-            InlineKeyboardButton(
-                "✏️ Edit Template Order Masuk",
-                callback_data="admin:edit_response:order_created",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "✏️ Edit Template Pembayaran",
-                callback_data="admin:edit_response:payment_success",
-            )
-        ],
         [
             InlineKeyboardButton(
                 "👁️ Preview Semua Respon", callback_data="admin:preview_responses"
@@ -73,7 +62,6 @@ def admin_product_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("➕ Tambah Produk", callback_data="admin:add_product")],
         [InlineKeyboardButton("📝 Edit Produk", callback_data="admin:edit_product")],
         [InlineKeyboardButton("🗑️ Hapus Produk", callback_data="admin:delete_product")],
-        [InlineKeyboardButton("🖼️ Upload Gambar", callback_data="admin:upload_image")],
         [InlineKeyboardButton("⬅️ Kembali", callback_data="admin:back")],
     ]
     return InlineKeyboardMarkup(buttons)
@@ -115,26 +103,17 @@ async def handle_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("❌ Kamu tidak punya akses admin.")
         return
 
-    # Cek apakah admin mengirim template pesan baru
-    last_command = context.user_data.get("admin_last_command")
-    config_mgr = context.bot_data.get("custom_config_mgr")
-    if last_command and config_mgr:
-        try:
-            # Validasi dan simpan template pesan
-            await config_mgr.set_config(last_command, update.message.text)
-            await update.message.reply_text(
-                f"✅ Template pesan '{last_command}' berhasil diupdate dan divalidasi."
-            )
-        except Exception as e:
-            await update.message.reply_text(f"❌ Gagal update template: {e}")
-        context.user_data["admin_last_command"] = None
+    # Tampilkan menu utama admin
+    # Hanya admin yang bisa melihat menu ini
+    admin_ids = context.bot_data.get("admin_ids", [])
+    if str(user.id) not in admin_ids:
+        await update.message.reply_text("❌ Kamu tidak punya akses admin.")
         return
 
-    # Tampilkan menu utama admin
     await update.message.reply_text(
-        "⚙️ Menu Admin:\nSilakan pilih aksi di bawah.",
+        "⚙️ Admin Settings:\nSilakan pilih aksi di bawah.",
         reply_markup=admin_main_menu(),
     )
 
 
-# TODO: Implement handlers for each submenu and config change, with DB integration, validation, preview, backup/restore, and logging.
+# Handler detail diatur di src/bot/admin/admin_actions.py & handlers.py.
