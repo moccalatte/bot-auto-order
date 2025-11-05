@@ -45,7 +45,7 @@ class TelemetryTracker:
     async def flush(self) -> None:
         """Write current metrics to log."""
         async with self._lock:
-            metrics = self.snapshot.__dict__.copy()
+            metrics = vars(self.snapshot).copy()
             logger.info("📊 Telemetry: %s", metrics)
 
     async def increment(self, field_name: str, amount: int = 1) -> None:
