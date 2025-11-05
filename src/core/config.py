@@ -31,24 +31,16 @@ class Settings(BaseSettings):
     bot_timezone: str = Field(default="Asia/Jakarta", alias="BOT_TIMEZONE")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     store_name: str = Field(default="Bot Auto Order", alias="BOT_STORE_NAME")
-    data_encryption_key: str | None = Field(
-        default=None, alias="DATA_ENCRYPTION_KEY"
-    )
-    owner_bot_token: str | None = Field(
-        default=None, alias="OWNER_BOT_TOKEN"
-    )
+    data_encryption_key: str | None = Field(default=None, alias="DATA_ENCRYPTION_KEY")
+    owner_bot_token: str | None = Field(default=None, alias="OWNER_BOT_TOKEN")
     snk_retention_days: int = Field(default=30, alias="SNK_RETENTION_DAYS")
     enable_owner_alerts: bool = Field(default=False, alias="ENABLE_OWNER_ALERTS")
-    owner_alert_threshold: str = Field(
-        default="ERROR", alias="OWNER_ALERT_THRESHOLD"
-    )
+    owner_alert_threshold: str = Field(default="ERROR", alias="OWNER_ALERT_THRESHOLD")
     health_cpu_threshold: int = Field(default=80, alias="HEALTH_CPU_THRESHOLD")
     health_memory_threshold: int = Field(default=80, alias="HEALTH_MEMORY_THRESHOLD")
     health_disk_threshold: int = Field(default=85, alias="HEALTH_DISK_THRESHOLD")
     log_usage_threshold_mb: int = Field(default=512, alias="LOG_USAGE_THRESHOLD_MB")
-    enable_auto_healthcheck: bool = Field(
-        default=True, alias="ENABLE_AUTO_HEALTHCHECK"
-    )
+    enable_auto_healthcheck: bool = Field(default=True, alias="ENABLE_AUTO_HEALTHCHECK")
     healthcheck_interval_minutes: int = Field(
         default=5, alias="HEALTHCHECK_INTERVAL_MINUTES"
     )
@@ -69,6 +61,8 @@ class Settings(BaseSettings):
     def parse_admin_ids(cls, value: object) -> List[int]:
         if value in (None, "", []):
             return []
+        if isinstance(value, int):
+            return [value]
         if isinstance(value, str):
             return [int(item.strip()) for item in value.split(",") if item.strip()]
         if isinstance(value, (list, tuple, set)):

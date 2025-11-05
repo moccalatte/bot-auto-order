@@ -135,15 +135,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     reply_keyboard = keyboards.main_reply_keyboard(range(1, min(len(products), 6)))
 
-    await update.message.reply_text(
-        welcome_text,
-        reply_markup=reply_keyboard,
-        parse_mode=ParseMode.MARKDOWN,
-    )
+    # Gabungkan welcome text dengan inline keyboard kategori dalam satu pesan
+    combined_text = f"{welcome_text}\n\n🪄 <b>Pilih kategori favoritmu ya!</b>"
 
     await update.message.reply_text(
-        "🪄 Pilih kategori favoritmu ya!",
+        combined_text,
         reply_markup=keyboards.category_inline_keyboard(categories),
+        parse_mode=ParseMode.HTML,
+    )
+
+    # Kirim reply keyboard di pesan terpisah tanpa text
+    await update.message.reply_text(
+        "📱 Gunakan menu di bawah untuk navigasi cepat:",
+        reply_markup=reply_keyboard,
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -186,7 +191,9 @@ async def handle_product_list(
         messages.product_list_line(index, product)
         for index, product in enumerate(products, start=1)
     ]
-    await message.reply_text(f"{header}\n" + "\n".join(lines[:10]))
+    await message.reply_text(
+        f"{header}\n" + "\n".join(lines[:10]), parse_mode=ParseMode.HTML
+    )
 
 
 def _parse_product_index(text: str) -> int | None:
@@ -484,6 +491,7 @@ async def show_product_detail(
     await message.reply_text(
         messages.product_detail(product, quantity),
         reply_markup=keyboards.product_inline_keyboard(product, quantity),
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -871,7 +879,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
         return
 
-    await update.message.reply_text(messages.generic_error())
+    await update.message.reply_text(messages.generic_error(), parse_mode=ParseMode.HTML)
 
 
 async def media_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1091,7 +1099,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             + "\n".join(
                 messages.product_list_line(index, product)
                 for index, product in enumerate(products, start=1)
-            )
+            ),
+            parse_mode=ParseMode.HTML,
         )
         return
 
@@ -1120,6 +1129,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.message.edit_text(
                 messages.product_detail(product, quantity),
                 reply_markup=keyboards.product_inline_keyboard(product, quantity),
+                parse_mode=ParseMode.HTML,
             )
             return
 
@@ -1130,6 +1140,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.message.reply_text(
                 messages.cart_summary(lines, total_items, total_rp),
                 reply_markup=keyboards.cart_inline_keyboard(),
+                parse_mode=ParseMode.HTML,
             )
             return
 
@@ -1151,6 +1162,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.message.reply_text(
                 messages.payment_prompt(total_rp, user_name, balance_rp, "524107"),
                 reply_markup=keyboards.payment_method_keyboard(),
+                parse_mode=ParseMode.HTML,
             )
             return
 
@@ -1161,7 +1173,9 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         cart = await cart_manager.get_cart(user.id)
         if action == "qris":
             try:
-                await query.message.reply_text(messages.payment_loading())
+                await query.message.reply_text(
+                    messages.payment_loading(), parse_mode=ParseMode.HTML
+                )
                 gateway_order_id, payload = await payment_service.create_invoice(
                     telegram_user={
                         "id": user.id,
@@ -1214,7 +1228,9 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         if action == "cancel":
             await cart_manager.clear_cart(user.id)
-            await query.message.reply_text(messages.payment_expired("DIBATALKAN"))
+            await query.message.reply_text(
+                messages.payment_expired("DIBATALKAN"), parse_mode=ParseMode.HTML
+            )
             return
 
 

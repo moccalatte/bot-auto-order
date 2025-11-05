@@ -5,6 +5,50 @@ Dokumen ini mencatat riwayat perubahan, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
+## [0.2.1+] – 2025-01-15 (Hotfix)
+### Fixed
+- **Config Validator**: Fixed `TELEGRAM_ADMIN_IDS` and `TELEGRAM_OWNER_IDS` validators in `src/core/config.py` to handle single integer values (not just comma-separated strings)
+- **JobQueue Warning**: Updated `requirements.txt` to include `python-telegram-bot[webhooks,job-queue]==21.3` to enable scheduled tasks without warnings
+- **Calculator Access Control**: Removed "🧮 Calculator" button from customer reply keyboard (now admin-only via `/refund_calculator` and `/set_calculator` commands)
+
+### Changed
+- **UX/UI Improvements**: Migrated all message templates from Markdown to HTML parse mode
+  - Welcome message now shows inline keyboard in first message with better formatting
+  - All important information now uses `<b>bold</b>` tags for emphasis
+  - Disclaimers use `<i>italic</i>` formatting
+  - Invoice IDs and transaction IDs use `<code>` tags for copy-paste
+  - Added `parse_mode=ParseMode.HTML` consistently across 10+ handler functions
+- **Message Templates**: Enhanced all messages in `src/bot/messages.py` with proper HTML formatting:
+  - `welcome_message`: Bold on user name, store name, and statistics
+  - `product_list_heading` and `product_list_line`: Bold on product names, prices, and quantities
+  - `product_detail`: Bold on field labels and values
+  - `cart_summary`: Bold on totals and item counts
+  - `payment_prompt`, `payment_invoice_detail`, `payment_success`: Enhanced visual hierarchy
+  - `generic_error`: Bold on main error message
+- **Handler Updates**: Updated `src/bot/handlers.py` to consistently use HTML parse mode in:
+  - `start()`: Combined welcome text with inline keyboard in first message
+  - `handle_product_list()`: Product listings with HTML formatting
+  - `show_product_detail()`: Product detail cards
+  - `callback_router()`: All callback responses (cart, payment, product selection)
+  - `text_router()`: Generic error messages
+
+### Documentation
+- **README.md**: Added recent fixes section, troubleshooting guide, and testing checklist
+- **fixing_plan.md**: Comprehensive update with status of all fixes, marked completed items with ✅
+- Added summary table of all fixes with file references
+- Documented testing checklist for post-deployment verification
+
+### Code Quality
+- No bare exceptions or SQL injection vulnerabilities detected in codebase scan
+- All error handling uses specific exception types
+- Consistent code style throughout all modified files
+
+### Known Issues
+- Port conflicts (9000, 8080) require manual resolution before deployment
+- Signal handling relies on python-telegram-bot library defaults (no custom implementation needed)
+
+---
+
 ## [0.2.1] – 2025-11-05
 ### Added
 - Mode `auto` untuk failover polling/webhook (`src/main.py`, `scripts/run_stack.sh`) beserta panduan switch DNS/Reverse Proxy.

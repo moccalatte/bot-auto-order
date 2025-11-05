@@ -15,7 +15,6 @@ def main_reply_keyboard(product_numbers: Sequence[int]) -> ReplyKeyboardMarkup:
     keyboard = [
         ["📋 List Produk", "📦 Semua Produk"],
         ["📊 Cek Stok", "💼 Deposit"],
-        ["🧮 Calculator"],  # Tambahkan tombol Calculator
         numbers_row,
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
