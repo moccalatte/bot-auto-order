@@ -38,7 +38,7 @@ Dokumen ini hanya memuat fitur, mitigasi risiko, dan langkah yang benar-benar fa
 
 | Fokus | Rencana | Status | Risiko Fatal |
 |-------|---------|--------|-------------|
-| **Health-check & alert downtime** | - Skrip health-check service.<br>- Alert ke admin jika bot down. | 🔴 | Bot mati tanpa diketahui, transaksi gagal. |
+| **Health-check & alert downtime** | - Skrip health-check service.<br>- Alert ke owner jika bot down. | 🔴 | Bot mati tanpa diketahui, transaksi gagal. |
 | **Early warning pembayaran** | - Alert ke owner jika pembayaran gagal beruntun (indikasi gateway down). | 🔴 | Transaksi gagal massal tanpa diketahui. |
 
 ---
@@ -50,7 +50,7 @@ Dokumen ini hanya memuat fitur, mitigasi risiko, dan langkah yang benar-benar fa
 - **Overlapping Admin Actions**  
   Audit notif ke owner jika ada edit bersamaan pada SNK/produk.
 - **Resource Exhaustion**  
-  Monitoring disk/memory, alert threshold, dan prosedur cleanup otomatis.
+  Monitoring disk/memory/CPU hanya dilakukan oleh owner, alert threshold dan prosedur cleanup otomatis hanya untuk owner.
 - **Dependency & API Change**  
   Pin versi dependency, monitor breaking change, dan siapkan fallback jika API eksternal berubah.
 
@@ -72,3 +72,4 @@ Dokumen ini hanya memuat fitur, mitigasi risiko, dan langkah yang benar-benar fa
 ---
 
 > Catatan: Hanya item di atas yang wajib sebelum produksi. Fitur opsional/tambahan dapat diprioritaskan setelah stabil dan aman.
+> Seller (admin) tidak diberi akses ke codebase/server dan tidak menerima info terkait monitoring, alert, atau recovery server. Semua notifikasi dan akses hanya untuk owner.

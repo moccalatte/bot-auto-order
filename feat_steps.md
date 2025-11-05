@@ -42,9 +42,9 @@ Dokumen ini hanya berisi langkah-langkah fatal/critical yang wajib diimplementas
 
 ## 5. Monitoring & Alerting
 
-- [ ] Implementasi monitoring resource (disk, memory, CPU) dan alert threshold ke admin.
-- [ ] Monitoring log rotasi agar disk tidak penuh dan log tidak hilang.
-- [ ] Alert real-time jika terjadi error fatal, downtime, atau pembayaran gagal beruntun.
+- [ ] Implementasi monitoring resource (disk, memory, CPU) dan alert threshold ke owner (bukan seller/admin).
+- [ ] Monitoring log rotasi agar disk tidak penuh dan log tidak hilang, alert hanya ke owner.
+- [ ] Alert real-time jika terjadi error fatal, downtime, atau pembayaran gagal beruntun, hanya ke owner.
 
 ---
 
@@ -52,7 +52,7 @@ Dokumen ini hanya berisi langkah-langkah fatal/critical yang wajib diimplementas
 
 - [ ] Siapkan SOP recovery untuk skenario kehilangan total VPS, restore dari backup offsite.
 - [ ] Checklist migrasi database jika ada perubahan struktur di masa depan.
-- [ ] Dokumentasi prosedur recovery dan training admin sebelum produksi.
+- [ ] Dokumentasi prosedur recovery dan training owner sebelum produksi. Seller/admin tidak diberi akses atau info terkait server/codebase.
 
 ---
 
