@@ -126,3 +126,16 @@ def invoice_keyboard(payment_url: str) -> InlineKeyboardMarkup:
             ],
         ]
     )
+
+
+def snk_confirmation_keyboard(notification_id: int) -> InlineKeyboardMarkup:
+    """Inline keyboard for SNK confirmation message to customer."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    text="✅ Penuhi SNK", callback_data=f"snk:submit:{notification_id}"
+                )
+            ]
+        ]
+    )

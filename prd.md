@@ -45,6 +45,13 @@ Bot Telegram auto-order untuk toko digital dengan pembayaran terhubung Pakasir. 
    - Fitur preview sebelum publish, validasi placeholder (misal: {nama}, {order_id}), backup & restore konfigurasi, serta audit log setiap perubahan.
    - Semua perubahan konfigurasi disimpan di database, bukan hardcode.
    - Dashboard ringkas via command admin (`/admin`, ⚙️ Pengaturan).
+9. **SNK Produk & Monitoring**  
+   - Admin dapat menambahkan Syarat & Ketentuan (SNK) khusus per produk.
+   - Bot mengirim SNK otomatis setelah pembayaran sukses dan menyediakan tombol `✅ Penuhi SNK` bagi customer untuk mengirim bukti (teks/foto) yang diteruskan ke admin.
+10. **Broadcast Pesan Admin**  
+    - Admin dapat mengirim pesan custom (teks atau foto) ke semua user yang pernah `/start`, mengabaikan user yang memblokir bot atau diblokir admin.
+11. **Notifikasi Pesanan ke Seller**  
+    - Setiap order baru menerbitkan notifikasi otomatis ke daftar admin (tanpa owner) berisi ringkasan pesanan, metode pembayaran, dan timestamp lokal.
 
 ## Alur Pengguna (Ringkas)
 1. `User` kirim `/start` → Bot kirim sambutan emoji + statistik + inline kategori dan reply keyboard utama.
@@ -56,6 +63,7 @@ Bot Telegram auto-order untuk toko digital dengan pembayaran terhubung Pakasir. 
 7. `User` pilih QRIS → Bot panggil API Pakasir, tampilkan QR & link mini app `🔗 Checkout URL`.  
    - Jika sukses: tampilkan pesan sukses plus detail produk & S&K (emoji `🎉`, `📦`).  
    - Jika kadaluarsa: hapus invoice, kirim stiker + pesan `📜 Tagihan Kadaluarsa`.
+8. Setelah status order `paid/completed` → Bot mengirim pesan SNK (per produk) ke customer beserta tombol `✅ Penuhi SNK`. Customer yang menekan tombol dapat mengirim bukti dan keterangan; bot mencatat dan meneruskan informasi ke seller/admin (owner dikecualikan).
 
 ## Persyaratan Fungsional
 - Autentikasi admin via daftar Telegram ID pada konfigurasi.
@@ -66,6 +74,10 @@ Bot Telegram auto-order untuk toko digital dengan pembayaran terhubung Pakasir. 
   - Wajib menyimpan `slug`, `api_key`, dan `PAKASIR_PUBLIC_DOMAIN` dalam konfigurasi aman.
   - Mendukung mode sandbox dengan endpoint `paymentsimulation`.
   - Menyimpan `order_id` unik (format `tg{telegram_id}-{timestamp/random}`) untuk korelasi webhook.
+- Sistem menyimpan SNK per produk, mengirimkannya otomatis ketika order berstatus `paid/completed`, serta mencatat submission customer (teks/foto) untuk audit.
+- Customer dapat mengirim bukti SNK melalui tombol `✅ Penuhi SNK`; bot meneruskan bukti tersebut ke seller/admin dan menandainya sebagai respon SNK.
+- Menu admin menyediakan fitur broadcast pesan (teks/foto) ke seluruh user yang pernah `/start`, dengan penanganan user yang diblokir atau memblokir bot.
+- Bot mengirim notifikasi order baru ke seluruh seller/admin (kecuali owner) menggunakan daftar `TELEGRAM_OWNER_IDS` untuk pengecualian.
 - Logging interaksi, error, dan perubahan konfigurasi di folder `logs/bot-order/YYYY-MM-DD.log`.
 - Penanganan error:
   - Jika API Pakasir gagal, tampilkan pesan `⚠️` ke user dan log detail error.

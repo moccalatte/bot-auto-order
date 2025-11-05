@@ -29,6 +29,9 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
 - **Validasi Input**: Semua input admin divalidasi sebelum disimpan.
 - **Rollback**: Bot dapat rollback ke default jika terjadi error konfigurasi.
 - **Privasi & Keamanan**: Data pribadi buyer/seller dijaga, hanya admin berwenang yang bisa akses. Owner dapat override dan audit penuh.
+- **Notifikasi Pesanan Baru ke Seller**: Order baru otomatis men-trigger pesan ringkas (tanpa owner) berisi data customer, produk, metode, dan timestamp lokal.
+- **SNK Produk & Monitoring**: Admin dapat menambahkan Syarat & Ketentuan per produk; bot mengirim SNK setelah pembayaran, customer dapat mengirim bukti lewat tombol `Penuhi SNK`, dan admin menerima notifikasi + media.
+- **Broadcast Pesan Custom**: Admin dapat mengirim teks atau foto ke semua user yang pernah `/start`, dengan penanganan otomatis untuk user yang memblokir bot.
 - **Notifikasi Owner**: Semua transaksi dan perubahan penting ada notifikasi ke owner.
 - **Anti-Spam & Rate Limit**: Fitur keamanan aktif sesuai project_rules.md.
 
@@ -42,6 +45,7 @@ Salin `.env.example` menjadi `.env`, lalu isi nilai berikut:
 ```
 TELEGRAM_BOT_TOKEN=your-telegram-bot-token
 TELEGRAM_ADMIN_IDS=123456789,987654321
+TELEGRAM_OWNER_IDS=111111111            # opsional, pisahkan dengan koma bila lebih dari satu
 DATABASE_URL=postgresql://user:password@localhost:5432/bot_order
 PAKASIR_PROJECT_SLUG=your-slug
 PAKASIR_API_KEY=your-api-key
@@ -114,6 +118,14 @@ BOT_STORE_NAME=Bot Auto Order
 4. Perubahan template dilakukan oleh owner; admin hanya dapat melakukan preview untuk memastikan pesan yang sedang aktif.
 5. Saat memperbarui status order, gunakan format `order_id|status|catatan(optional)`; catatan hanya diperlukan bila pembayaran manual/deposit dan berisi bukti singkat (misal nomor referensi transfer). Semua perubahan data (produk/order/user/voucher) divalidasi sebelum disimpan dan otomatis tercatat di log untuk owner (termasuk pengaturan masa berlaku & batas voucher).
 6. Owner dapat audit semua perubahan melalui log.
+7. Setelah menambah produk, admin akan ditanya apakah ingin menambahkan SNK (Syarat & Ketentuan). Pilih **Tambah SNK** untuk langsung mengirim teks SNK atau **Skip SNK** bila belum diperlukan.
+8. Gunakan submenu **📜 Kelola SNK Produk** (format `product_id|SNK baru` atau `product_id|hapus`) untuk memperbarui atau menghapus SNK produk kapan saja.
+9. Gunakan menu **📣 Broadcast Pesan** untuk mengirim pengumuman ke seluruh user yang pernah `/start`. Kirim teks biasa atau foto dengan caption; ketik `BATAL` untuk membatalkan.
+
+## SNK & Monitoring
+- Bot otomatis mengirim pesan SNK lengkap setelah order berstatus `paid/completed`, lengkap dengan tombol `✅ Penuhi SNK`.
+- Customer yang menekan tombol dapat mengirim screenshot dan keterangan; bot menyimpan bukti di database (`product_term_submissions`) dan meneruskan ke seller/admin sebagai notifikasi (owner tidak menerima).
+- Admin dapat meninjau bukti dari notifikasi Telegram dan log audit; data tersimpan untuk kepentingan SLA/garansi.
 
 ## Rollback & Recovery
 - Jika terjadi error konfigurasi, bot otomatis rollback ke default.

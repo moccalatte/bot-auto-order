@@ -14,6 +14,7 @@ from src.services.catalog import Product
 from src.services.pakasir import PakasirClient
 from src.services.postgres import get_pool
 from src.services.users import upsert_user
+from src.services.terms import schedule_terms_notifications
 
 
 logger = logging.getLogger(__name__)
@@ -222,6 +223,7 @@ class PaymentService:
                     """,
                     order_id,
                 )
+        await schedule_terms_notifications(str(order_id))
         await self._telemetry.increment("successful_transactions")
         logger.info(
             "[payment_completed] Order %s sukses dari gateway %s",

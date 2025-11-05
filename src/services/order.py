@@ -6,6 +6,7 @@ import logging
 from typing import List, Dict, Any
 
 from src.services.postgres import get_pool
+from src.services.terms import schedule_terms_notifications
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,9 @@ async def update_order_status(order_id: int | str, status: str) -> None:
             status,
         )
     logger.info("[order_status] Order %s di-set ke %s", order_id_int, status)
+    normalized = status.strip().lower()
+    if normalized in {"paid", "completed", "settled"}:
+        await schedule_terms_notifications(str(order_id_int))
 
 
 async def add_order_item(

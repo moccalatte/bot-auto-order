@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
+import html
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, Sequence
+from zoneinfo import ZoneInfo
 
-from telegram import CallbackQuery, Message, Update, User
+from telegram import (
+    CallbackQuery,
+    Message,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    Update,
+    User,
+)
 from telegram.constants import ParseMode
+from telegram.error import Forbidden, TelegramError
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -36,11 +48,13 @@ from src.bot.admin.admin_actions import (
     handle_update_order_input,
     handle_generate_voucher_input,
     handle_delete_voucher_input,
+    handle_manage_product_snk_input,
     list_categories_overview,
     render_order_overview,
     render_product_overview,
     render_user_overview,
     render_voucher_overview,
+    save_product_snk,
 )
 from src.bot.admin.admin_state import (
     clear_admin_state,
@@ -67,7 +81,18 @@ from src.services.calculator import (
     get_history,
     update_config,
 )
-from src.services.users import is_user_blocked
+from src.services.users import (
+    is_user_blocked,
+    list_broadcast_targets,
+    mark_user_bot_blocked,
+)
+from src.services.terms import (
+    get_notification,
+    list_pending_notifications,
+    mark_notification_responded,
+    mark_notification_sent,
+    record_terms_submission,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -162,6 +187,293 @@ def _parse_product_index(text: str) -> int | None:
     return None
 
 
+async def _handle_add_product_snk_choice(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    state: Any,
+    text: str,
+) -> None:
+    """Process admin choice to add or skip SNK after product creation."""
+    choice = text.strip().lower()
+    payload = state.payload or {}
+    if choice == "tambah snk":
+        context.user_data.pop("pending_snk_product", None)
+        set_admin_state(context.user_data, "add_product_snk_input", **payload)
+        await update.message.reply_text(
+            "Silakan kirim SNK untuk produk ini. Kamu bisa tulis beberapa baris "
+            "untuk menjelaskan aturan, langkah login, dan batas waktu klaim.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return
+    if choice == "skip snk":
+        context.user_data.pop("pending_snk_product", None)
+        clear_admin_state(context.user_data)
+        await update.message.reply_text(
+            "👍 Baik, SNK tidak ditambahkan. Kamu bisa mengelolanya lagi dari menu 📜 Kelola SNK Produk.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return
+    await update.message.reply_text(
+        "Silakan pilih tombol 'Tambah SNK' atau 'Skip SNK' ya."
+    )
+
+
+def _limit_words(value: str, max_words: int = 3) -> str:
+    """Return string limited to given number of words."""
+    if not value:
+        return "-"
+    words = value.split()
+    return " ".join(words[:max_words]) if words else "-"
+
+
+def _format_html_lines(value: str | None) -> str:
+    """Escape text for HTML and preserve newlines with <br>."""
+    if not value:
+        return "-"
+    return "<br>".join(html.escape(part) for part in value.splitlines())
+
+
+def _get_seller_recipient_ids(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> list[int]:
+    """Return admin IDs excluding owner IDs."""
+    admin_ids = context.application.bot_data.get("admin_ids", [])
+    owner_ids = set(context.application.bot_data.get("owner_ids", []))
+    recipients: list[int] = []
+    for raw_id in admin_ids:
+        if raw_id in owner_ids:
+            continue
+        try:
+            recipients.append(int(raw_id))
+        except (TypeError, ValueError):
+            logger.warning("Admin ID %s tidak valid untuk notifikasi.", raw_id)
+    return recipients
+
+
+async def _notify_admin_new_order(
+    context: ContextTypes.DEFAULT_TYPE,
+    user: User,
+    cart: Cart,
+    *,
+    order_id: str,
+    method: str,
+    created_at: str,
+) -> None:
+    """Send new order notification to seller/admins."""
+    recipients = _get_seller_recipient_ids(context)
+    if not recipients:
+        return
+    settings = get_settings()
+    try:
+        created_dt = datetime.fromisoformat(created_at)
+    except (ValueError, TypeError):
+        created_dt = datetime.now(timezone.utc)
+    try:
+        tz = ZoneInfo(settings.bot_timezone)
+    except Exception:  # pragma: no cover - fallback path
+        tz = timezone.utc
+    created_local = created_dt.astimezone(tz)
+    timestamp_str = created_local.strftime("%d-%m-%Y %H:%M")
+    name_source = user.full_name or user.username or "Customer"
+    customer_name = _limit_words(name_source)
+    username = f"@{user.username}" if user.username else "-"
+    products = [f"{item.quantity}x {item.product.name}" for item in cart.items.values()]
+    products_text = ", ".join(products) if products else "-"
+    method_label = "Deposit" if method == "deposit" else "Otomatis"
+    if method not in {"deposit", ""}:
+        method_label += f" ({method.upper()})"
+    message_text = (
+        f"🛒 <b>Pesanan Baru dari {html.escape(customer_name)}</b>\n\n"
+        f"<b>ID Telegram:</b> {user.id}\n"
+        f"<b>Username:</b> {html.escape(username)}\n"
+        f"<b>Pesanan:</b> {html.escape(products_text)}\n"
+        f"<b>Metode Pembayaran:</b> {html.escape(method_label)}\n"
+        f"<b>ID Pesanan:</b> {html.escape(order_id)}\n"
+        f"<b>Tanggal Pembelian:</b> {html.escape(timestamp_str)}\n\n"
+        "✨ <b>Silakan simpan catatan pesanan ini jika perlu. Terima kasih</b> ✨"
+    )
+    for admin_id in recipients:
+        try:
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=message_text,
+                parse_mode=ParseMode.HTML,
+            )
+        except TelegramError as exc:  # pragma: no cover - network failure
+            logger.warning(
+                "[notif] Gagal mengirim notifikasi order ke admin %s: %s",
+                admin_id,
+                exc,
+            )
+
+
+async def _notify_admin_snk_submission(
+    context: ContextTypes.DEFAULT_TYPE,
+    notification: Dict[str, Any],
+    user: User,
+    message_text: str | None,
+    *,
+    media_file_id: str | None,
+    media_type: str | None,
+) -> None:
+    """Forward SNK submission to admins (without owner)."""
+    recipients = _get_seller_recipient_ids(context)
+    if not recipients:
+        return
+    product = await get_product(int(notification["product_id"]))
+    product_name = product.name if product else "-"
+    customer_name = _limit_words(user.full_name or user.username or "Customer")
+    order_id = str(notification["order_id"])
+    submission_text = _format_html_lines(message_text)
+    body = (
+        f"<b>PESAN BARU DARI {html.escape(customer_name)}</b><br><br>"
+        f"<b>INFORMASI</b>: 'Penuhi SNK'<br>"
+        f"{submission_text}<br><br>"
+        f"<b>Produk:</b> {html.escape(product_name)}<br>"
+        f"<b>Order ID:</b> {html.escape(order_id)}"
+    )
+    for admin_id in recipients:
+        try:
+            if media_file_id and media_type == "photo":
+                await context.bot.send_photo(
+                    chat_id=admin_id,
+                    photo=media_file_id,
+                    caption=body,
+                    parse_mode=ParseMode.HTML,
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=body,
+                    parse_mode=ParseMode.HTML,
+                )
+        except TelegramError as exc:  # pragma: no cover - network failure
+            logger.warning("[snk] Gagal meneruskan SNK ke admin %s: %s", admin_id, exc)
+
+
+async def _handle_snk_submission_message(
+    message: Message,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    text: str | None,
+    media_file_id: str | None,
+    media_type: str | None,
+) -> bool:
+    """Persist SNK submission when user sends text or media."""
+    snk_state = context.user_data.get("snk_submission")
+    if not snk_state:
+        return False
+    notification_id = int(snk_state.get("notification_id") or 0)
+    if notification_id <= 0:
+        context.user_data.pop("snk_submission", None)
+        await message.reply_text(
+            "⚠️ Permintaan SNK tidak valid. Silakan klik tombol 'Penuhi SNK' lagi."
+        )
+        return True
+    notification = await get_notification(notification_id)
+    if notification is None:
+        context.user_data.pop("snk_submission", None)
+        await message.reply_text(
+            "⚠️ Permintaan SNK sudah tidak berlaku. Tekan tombol SNK lagi ya."
+        )
+        return True
+    user = message.from_user
+    if user is None or int(notification["telegram_user_id"]) != user.id:
+        context.user_data.pop("snk_submission", None)
+        await message.reply_text("❌ Permintaan SNK tidak cocok dengan akun kamu.")
+        return True
+    submission_text = text or ""
+    if not submission_text and not media_file_id:
+        await message.reply_text("📸 Kirim screenshot atau pesan keterangannya ya.")
+        return True
+    await record_terms_submission(
+        order_id=str(notification["order_id"]),
+        product_id=int(notification["product_id"]),
+        telegram_user_id=user.id,
+        message=submission_text or None,
+        media_file_id=media_file_id,
+        media_type=media_type,
+    )
+    await mark_notification_responded(notification_id)
+    context.user_data.pop("snk_submission", None)
+    await message.reply_text(
+        "✅ Terima kasih! Kami sudah terima bukti SNK kamu. Admin akan meninjau secepatnya."
+    )
+    await _notify_admin_snk_submission(
+        context,
+        notification,
+        user,
+        submission_text or "-",
+        media_file_id=media_file_id,
+        media_type=media_type,
+    )
+    return True
+
+
+def _format_broadcast_summary(result: Dict[str, int]) -> str:
+    """Build broadcast result summary."""
+    return (
+        "📣 Broadcast selesai!\n"
+        f"👥 Target: {result.get('total', 0)}\n"
+        f"✅ Berhasil: {result.get('success', 0)}\n"
+        f"🚫 Bot diblokir: {result.get('blocked', 0)}\n"
+        f"⚠️ Gagal: {result.get('failed', 0)}"
+    )
+
+
+async def _broadcast_message(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    actor_id: int,
+    text: str | None,
+    media_file_id: str | None = None,
+    media_type: str | None = None,
+) -> Dict[str, int]:
+    """Send broadcast content to all eligible users."""
+    targets = await list_broadcast_targets()
+    valid_targets = [
+        int(row["telegram_id"]) for row in targets if row.get("telegram_id") is not None
+    ]
+    stats = {"total": len(valid_targets), "success": 0, "blocked": 0, "failed": 0}
+    if not valid_targets:
+        logger.info("[broadcast] Tidak ada target broadcast.")
+        return stats
+    for telegram_id in valid_targets:
+        try:
+            if media_file_id and media_type == "photo":
+                await context.bot.send_photo(
+                    chat_id=telegram_id,
+                    photo=media_file_id,
+                    caption=text or "",
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=telegram_id,
+                    text=text or "",
+                )
+            stats["success"] += 1
+        except Forbidden:
+            stats["blocked"] += 1
+            await mark_user_bot_blocked(telegram_id)
+        except TelegramError as exc:  # pragma: no cover - network failure
+            stats["failed"] += 1
+            logger.error(
+                "[broadcast] Gagal mengirim ke %s: %s",
+                telegram_id,
+                exc,
+            )
+        await asyncio.sleep(0.05)
+    logger.info(
+        "[broadcast] Actor %s selesai. total=%s success=%s blocked=%s failed=%s",
+        actor_id,
+        stats["total"],
+        stats["success"],
+        stats["blocked"],
+        stats["failed"],
+    )
+    return stats
+
+
 async def show_product_detail(
     message: Message,
     context: ContextTypes.DEFAULT_TYPE,
@@ -177,6 +489,47 @@ async def show_product_detail(
     )
 
 
+async def process_pending_snk_notifications(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Background job to deliver SNK messages to customers."""
+    notifications = await list_pending_notifications(limit=10)
+    if not notifications:
+        return
+    for notification in notifications:
+        notification_id = int(notification["id"])
+        telegram_user_id = int(notification["telegram_user_id"])
+        product_id = int(notification["product_id"])
+        product = await get_product(product_id)
+        product_name = product.name if product else "produk ini"
+        snk_text = notification.get("content") or ""
+        message_text = (
+            f"📜 SNK untuk {product_name}\n\n"
+            f"{snk_text}\n\n"
+            "Jika sudah mengikuti instruksi, klik tombol di bawah untuk kirim bukti ya."
+        )
+        try:
+            await context.bot.send_message(
+                chat_id=telegram_user_id,
+                text=message_text,
+                reply_markup=keyboards.snk_confirmation_keyboard(notification_id),
+            )
+            await mark_notification_sent(notification_id)
+        except Forbidden:
+            logger.warning(
+                "[snk] User %s memblokir bot saat kirim SNK.",
+                telegram_user_id,
+            )
+            await mark_notification_sent(notification_id)
+            await mark_user_bot_blocked(telegram_user_id)
+        except TelegramError as exc:  # pragma: no cover - network failure
+            logger.error(
+                "[snk] Gagal mengirim SNK ke user %s: %s",
+                telegram_user_id,
+                exc,
+            )
+
+
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Route reply keyboard text messages."""
     if update.message is None:
@@ -186,6 +539,14 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     text = (update.message.text or "").strip()
+    if await _handle_snk_submission_message(
+        update.message,
+        context,
+        text=text,
+        media_file_id=None,
+        media_type=None,
+    ):
+        return
     admin_ids = context.bot_data.get("admin_ids", [])
     user = update.effective_user
     user_id_str = str(user.id) if user else ""
@@ -194,9 +555,38 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if is_admin:
         state = get_admin_state(context.user_data)
         if state:
+            reply_kwargs: Dict[str, Any] = {}
+            keep_state = False
             try:
                 if state.action == "add_product":
-                    response = await handle_add_product_input(text, user.id)  # type: ignore[arg-type]
+                    response = await handle_add_product_input(
+                        text, user.id, context=context
+                    )  # type: ignore[arg-type]
+                elif state.action == "add_product_snk_choice":
+                    await _handle_add_product_snk_choice(update, context, state, text)
+                    return
+                elif state.action == "add_product_snk_input":
+                    product_id = int(state.payload.get("product_id") or 0)
+                    if not product_id:
+                        response = "⚠️ Produk untuk SNK tidak ditemukan."
+                    else:
+                        response = await save_product_snk(product_id, text, user.id)
+                    reply_kwargs["reply_markup"] = ReplyKeyboardRemove()
+                elif state.action == "broadcast_message":
+                    if text.strip().lower() == "batal":
+                        response = "🚫 Broadcast dibatalkan."
+                    elif not text:
+                        response = "⚠️ Pesan broadcast tidak boleh kosong."
+                        keep_state = True
+                    else:
+                        stats = await _broadcast_message(
+                            context,
+                            actor_id=user.id,
+                            text=text,
+                        )
+                        response = _format_broadcast_summary(stats)
+                elif state.action == "manage_product_snk":
+                    response = await handle_manage_product_snk_input(text, user.id)  # type: ignore[arg-type]
                 elif state.action == "edit_product":
                     response = await handle_edit_product_input(text, user.id)  # type: ignore[arg-type]
                 elif state.action == "delete_product":
@@ -231,7 +621,25 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 )
                 return
             clear_admin_state(context.user_data)
-            await update.message.reply_text(response)
+            if keep_state and state.action == "broadcast_message":
+                set_admin_state(context.user_data, "broadcast_message")
+            await update.message.reply_text(response, **reply_kwargs)
+            if state.action == "add_product":
+                pending = context.user_data.pop("pending_snk_product", None)
+                if pending:
+                    set_admin_state(
+                        context.user_data,
+                        "add_product_snk_choice",
+                        **pending,
+                    )
+                    await update.message.reply_text(
+                        "Apakah kamu ingin tambahkan SNK untuk produk ini? klik tombol dibawah",
+                        reply_markup=ReplyKeyboardMarkup(
+                            [["Tambah SNK", "Skip SNK"]],
+                            resize_keyboard=True,
+                            one_time_keyboard=True,
+                        ),
+                    )
             return
 
     # Hapus akses menu produk lama dari admin, hanya gunakan menu settings baru
@@ -340,6 +748,18 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "📦 Stok Teratas Saat Ini:\n" + "\n".join(lines[:10])
         )
         return
+    if text == "📣 Broadcast Pesan":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
+        set_admin_state(context.user_data, "broadcast_message")
+        await update.message.reply_text(
+            "📣 Mode Broadcast Aktif\n"
+            "- Kirim teks untuk broadcast ke semua user.\n"
+            "- Kirim foto dengan caption untuk broadcast bergambar.\n"
+            "Ketik BATAL untuk membatalkan.",
+        )
+        return
 
     if text == "💼 Deposit":
         await update.message.reply_text(
@@ -382,6 +802,43 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(messages.generic_error())
 
 
+async def media_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle media messages (currently for SNK submissions)."""
+    message = update.message
+    if message is None:
+        return
+    if await _check_spam(update, context):
+        return
+    if message.photo:
+        file_id = message.photo[-1].file_id
+        caption = (message.caption or "").strip()
+        if await _handle_snk_submission_message(
+            message,
+            context,
+            text=caption,
+            media_file_id=file_id,
+            media_type="photo",
+        ):
+            return
+    user = update.effective_user
+    admin_ids = context.bot_data.get("admin_ids", [])
+    if user and str(user.id) in admin_ids and message.photo:
+        state = get_admin_state(context.user_data)
+        if state and state.action == "broadcast_message":
+            file_id = message.photo[-1].file_id
+            caption = (message.caption or "").strip()
+            stats = await _broadcast_message(
+                context,
+                actor_id=user.id,
+                text=caption,
+                media_file_id=file_id,
+                media_type="photo",
+            )
+            clear_admin_state(context.user_data)
+            await message.reply_text(_format_broadcast_summary(stats))
+            return
+
+
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Process callback data from inline keyboards."""
     query: CallbackQuery = update.callback_query  # type: ignore[assignment]
@@ -393,6 +850,26 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     if await _check_spam(update, context, alert_callback=True):
+        return
+
+    if data.startswith("snk:submit:"):
+        try:
+            notification_id = int(data.split(":", maxsplit=2)[2])
+        except (IndexError, ValueError):
+            await query.answer("Permintaan tidak valid.", show_alert=True)
+            return
+        notification = await get_notification(notification_id)
+        if notification is None:
+            await query.answer("Permintaan SNK sudah tidak aktif.", show_alert=True)
+            return
+        if int(notification["telegram_user_id"]) != user.id:
+            await query.answer("Permintaan SNK tidak cocok.", show_alert=True)
+            return
+        context.user_data["snk_submission"] = {"notification_id": notification_id}
+        await query.answer("Silakan kirim bukti SNK kamu.")
+        await query.message.reply_text(
+            "📸 Kirim screenshot dan keterangan sesuai SNK ya. Kamu juga boleh kirim teks saja kalau tidak perlu screenshot."
+        )
         return
 
     # --- Admin Menu Callback Integration ---
@@ -446,6 +923,14 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             set_admin_state(context.user_data, "delete_product")
             await update.effective_message.reply_text(
                 "🗑️ Kirim ID produk yang ingin dihapus."
+            )
+            return
+        elif data == "admin:snk_product":
+            set_admin_state(context.user_data, "manage_product_snk")
+            await update.effective_message.reply_text(
+                "📜 Kelola SNK Produk\n"
+                "Format: product_id|SNK baru\n"
+                "Gunakan product_id|hapus untuk mengosongkan SNK.",
             )
             return
         elif data == "admin:list_orders":
@@ -609,6 +1094,14 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 return
 
             payment_data = payload["payment"]
+            await _notify_admin_new_order(
+                context,
+                user,
+                cart,
+                order_id=str(payload.get("order_id", "")),
+                method=action,
+                created_at=str(payload.get("created_at")),
+            )
             invoice_text = messages.payment_invoice_detail(
                 invoice_id=gateway_order_id,
                 items=cart.to_lines(),
@@ -646,6 +1139,7 @@ def register(application: Application) -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", handle_admin_menu))
     application.add_handler(CallbackQueryHandler(callback_router))
+    application.add_handler(MessageHandler(filters.PHOTO, media_router))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, text_router)
     )
@@ -679,6 +1173,16 @@ def setup_bot_data(
     application.bot_data["admin_ids"] = [
         str(i) for i in (settings.telegram_admin_ids or [])
     ]
+    application.bot_data["owner_ids"] = [
+        str(i) for i in (settings.telegram_owner_ids or [])
+    ]
+    if application.job_queue:
+        application.job_queue.run_repeating(
+            process_pending_snk_notifications,
+            interval=60,
+            first=10,
+            name="snk_notifier",
+        )
 
 
 async def _check_spam(

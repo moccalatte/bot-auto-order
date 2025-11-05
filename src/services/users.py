@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict, List
 
 from src.services.postgres import get_pool
 
@@ -43,6 +43,12 @@ async def list_users(limit: int = 50) -> list:
     """List semua user."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        await conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE;"
+        )
+        await conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_blocked BOOLEAN DEFAULT FALSE;"
+        )
         rows = await conn.fetch(
             "SELECT * FROM users ORDER BY created_at DESC LIMIT $1;", limit
         )
@@ -123,3 +129,43 @@ async def is_user_blocked(
                 telegram_id,
             )
     return bool(row["is_blocked"]) if row else False
+
+
+async def list_broadcast_targets() -> List[Dict[str, Any]]:
+    """Return Telegram IDs that should receive broadcast (no blocked users)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE;"
+        )
+        await conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_blocked BOOLEAN DEFAULT FALSE;"
+        )
+        rows = await conn.fetch(
+            """
+            SELECT id, telegram_id
+            FROM users
+            WHERE COALESCE(is_blocked, FALSE) = FALSE
+              AND COALESCE(bot_blocked, FALSE) = FALSE;
+            """
+        )
+    return [dict(row) for row in rows]
+
+
+async def mark_user_bot_blocked(telegram_id: int, *, blocked: bool = True) -> None:
+    """Mark that user has blocked the bot to skip future broadcasts."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_blocked BOOLEAN DEFAULT FALSE;"
+        )
+        await conn.execute(
+            """
+            UPDATE users
+            SET bot_blocked = $2,
+                updated_at = NOW()
+            WHERE telegram_id = $1;
+            """,
+            telegram_id,
+            blocked,
+        )

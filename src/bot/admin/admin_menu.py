@@ -39,6 +39,7 @@ def admin_main_menu() -> ReplyKeyboardMarkup:
         ["📦 Kelola Order"],
         ["👥 Kelola User"],
         ["🎟️ Kelola Voucher"],
+        ["📣 Broadcast Pesan"],
         ["⬅️ Kembali ke Menu Utama"],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -63,6 +64,11 @@ def admin_product_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("➕ Tambah Produk", callback_data="admin:add_product")],
         [InlineKeyboardButton("📝 Edit Produk", callback_data="admin:edit_product")],
         [InlineKeyboardButton("🗑️ Hapus Produk", callback_data="admin:delete_product")],
+        [
+            InlineKeyboardButton(
+                "📜 Kelola SNK Produk", callback_data="admin:snk_product"
+            )
+        ],
         [InlineKeyboardButton("⬅️ Kembali", callback_data="admin:back")],
     ]
     return InlineKeyboardMarkup(buttons)

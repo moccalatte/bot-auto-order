@@ -27,6 +27,7 @@ from src.services.order import (
 )
 from src.services.users import block_user, list_users, unblock_user
 from src.services.voucher import add_voucher, delete_voucher, list_vouchers
+from src.services.terms import set_product_terms, clear_product_terms
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,12 @@ def _parse_price_to_cents(value: str) -> int:
     return int(round(rupiah * 100))
 
 
-async def handle_add_product_input(raw: str, actor_id: int) -> str:
+async def handle_add_product_input(
+    raw: str,
+    actor_id: int,
+    *,
+    context: ContextTypes.DEFAULT_TYPE | None = None,
+) -> str:
     """
     Expected format: category_id|code|name|price|stock|description
     """
@@ -70,7 +76,7 @@ async def handle_add_product_input(raw: str, actor_id: int) -> str:
     stock = _parse_int(parts[4], "stok")
     description = parts[5]
 
-    await add_product(
+    product_id = await add_product(
         category_id=category_id,
         code=code,
         name=name,
@@ -78,12 +84,18 @@ async def handle_add_product_input(raw: str, actor_id: int) -> str:
         price_cents=price_cents,
         stock=stock,
     )
+    if context is not None:
+        context.user_data["pending_snk_product"] = {
+            "product_id": product_id,
+            "product_name": name,
+        }
 
     logger.info("Admin %s menambahkan produk baru %s (%s).", actor_id, name, code)
     audit_log(
         actor_id=actor_id,
         action="admin.product.add",
         details={
+            "product_id": product_id,
             "code": code,
             "name": name,
             "category_id": category_id,
@@ -92,6 +104,72 @@ async def handle_add_product_input(raw: str, actor_id: int) -> str:
         },
     )
     return f"✅ Produk '{name}' berhasil ditambahkan."
+
+
+async def _load_product(product_id: int) -> Product:
+    product = await get_product(product_id)
+    if product is None:
+        raise AdminActionError("Produk tidak ditemukan.")
+    return product
+
+
+async def save_product_snk(product_id: int, content: str, actor_id: int) -> str:
+    """Save SNK content for product."""
+    product = await _load_product(product_id)
+    await set_product_terms(product_id=product_id, content=content)
+    audit_log(
+        actor_id=actor_id,
+        action="admin.product.snk.save",
+        details={"product_id": product_id},
+    )
+    logger.info(
+        "Admin %s menyimpan SNK untuk produk %s (%s).",
+        actor_id,
+        product_id,
+        product.name,
+    )
+    return (
+        f"📜 SNK untuk '{product.name}' berhasil disimpan.\n"
+        "Customer akan menerima panduan ini setelah pembayaran sukses."
+    )
+
+
+async def clear_product_snk(product_id: int, actor_id: int) -> str:
+    """Delete SNK for product."""
+    product = await _load_product(product_id)
+    await clear_product_terms(product_id)
+    audit_log(
+        actor_id=actor_id,
+        action="admin.product.snk.clear",
+        details={"product_id": product_id},
+    )
+    logger.info(
+        "Admin %s menghapus SNK untuk produk %s (%s).",
+        actor_id,
+        product_id,
+        product.name,
+    )
+    return f"🧹 SNK untuk '{product.name}' sudah dihapus."
+
+
+async def handle_manage_product_snk_input(raw: str, actor_id: int) -> str:
+    """
+    Expected format: product_id|SNK baru
+    Gunakan kata kunci 'hapus' untuk menghapus SNK.
+    """
+
+    parts = [part.strip() for part in raw.split("|", maxsplit=1)]
+    if len(parts) != 2:
+        raise AdminActionError(
+            "Format tidak valid. Gunakan: product_id|SNK baru atau product_id|hapus."
+        )
+    product_id = _parse_int(parts[0], "product_id")
+    payload = parts[1]
+    if payload.lower() in {"hapus", "delete", "remove"}:
+        return await clear_product_snk(product_id, actor_id)
+    if not payload:
+        raise AdminActionError("SNK tidak boleh kosong.")
+    return await save_product_snk(product_id, payload, actor_id)
 
 
 async def handle_edit_product_input(raw: str, actor_id: int) -> str:
@@ -412,4 +490,7 @@ __all__ = [
     "list_categories_overview",
     "handle_generate_voucher_input",
     "handle_delete_voucher_input",
+    "save_product_snk",
+    "clear_product_snk",
+    "handle_manage_product_snk_input",
 ]
