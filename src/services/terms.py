@@ -288,9 +288,9 @@ async def purge_old_submissions(retention_days: int) -> int:
         result = await conn.execute(
             """
             DELETE FROM product_term_submissions
-            WHERE created_at < NOW() - ($1::TEXT || ' days')::INTERVAL;
+            WHERE created_at < NOW() - ($1 || ' days')::INTERVAL;
             """,
-            retention_days,
+            str(retention_days),
         )
     try:
         return int(result.split(" ")[1])

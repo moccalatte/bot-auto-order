@@ -442,7 +442,7 @@ async def handle_generate_voucher_input(raw: str, actor_id: int) -> str:
 
     # Parse nominal - bisa berupa persen (10%) atau nilai rupiah (5000)
     if nominal_str.endswith("%"):
-        discount_type = "percentage"
+        discount_type = "percent"  # Database constraint uses 'percent'
         try:
             discount_value = int(nominal_str[:-1])
             if discount_value <= 0 or discount_value > 100:
@@ -450,7 +450,7 @@ async def handle_generate_voucher_input(raw: str, actor_id: int) -> str:
         except ValueError:
             raise AdminActionError(f"Format persen tidak valid: {nominal_str}")
     else:
-        discount_type = "fixed"
+        discount_type = "flat"  # Database constraint uses 'flat'
         try:
             discount_value = int(nominal_str)
             if discount_value <= 0:
@@ -467,7 +467,7 @@ async def handle_generate_voucher_input(raw: str, actor_id: int) -> str:
         raise AdminActionError(f"Format batas pakai tidak valid: {max_uses_str}")
 
     # Create voucher dengan deskripsi otomatis
-    if discount_type == "percentage":
+    if discount_type == "percent":
         description = f"Diskon {discount_value}%"
     else:
         description = f"Diskon Rp {discount_value:,}".replace(",", ".")

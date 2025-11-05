@@ -4,6 +4,74 @@ Dokumen ini mencatat riwayat perubahan, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
+## [0.4.0] – 2025-01-XX (Product List Pagination, Deposit Handlers, Major Bug Fixes)
+
+### Added
+- **Product List Pagination**: Implement pagination untuk list produk dengan 5 produk per halaman
+  - Navigation buttons: "⬅️ Previous" dan "➡️ Next"
+  - Page indicator: "📄 Halaman 1/3"
+  - Quick view buttons untuk setiap produk
+  - Callback handler: `products:page:{page}` dan `product:{id}`
+- **Deposit Handlers**: Complete implementation untuk deposit menu
+  - **Deposit QRIS**: Menampilkan pesan "sedang dalam pengembangan" dengan informasi
+  - **Transfer Manual**: Panduan lengkap cara deposit via transfer bank
+  - Callback handlers: `deposit:qris` dan `deposit:manual`
+- **Reusable Welcome Function**: Created `_send_welcome_message()` function
+  - Konsisten di semua entry point (/start, cancel, kembali)
+  - Inline keyboard untuk semua user (admin & customer)
+  - Mengirim 3 pesan: stiker → welcome text → inline keyboard
+- **Product List Handlers**: Added handlers untuk keyboard buttons "📋 List Produk" dan "🛍 Semua Produk"
+- **Cancel Buttons for User Management**: Added inline cancel buttons untuk blokir/unblokir user
+
+### Fixed
+- **CRITICAL: Product List Error**: Fixed error "sistem lagi sibuk" saat klik "semua produk" atau "📋 List Produk"
+  - Added proper handlers untuk keyboard buttons
+  - Enhanced `handle_product_list()` dengan error handling lengkap
+  - Empty product list now shows friendly message
+- **CRITICAL: SNK Purge Job Error**: Fixed `TypeError: expected str, got int` di background job
+  - Convert `retention_days` to string properly: `str(retention_days)`
+  - No more crashes in scheduled jobs
+- **Voucher Database Constraint Error**: Fixed `CheckViolationError: coupons_discount_type_check`
+  - Changed `'percentage'` → `'percent'` (match database constraint)
+  - Changed `'fixed'` → `'flat'` (match database constraint)
+  - Voucher generation now works perfectly
+- **Welcome Message Consistency**: Fixed welcome message tidak muncul saat cancel atau kembali
+  - All "⬅️ Kembali ke Menu Utama", "⬅️ Kembali", dan cancel buttons now use `_send_welcome_message()`
+  - Inline keyboard always displayed for both admin and customer
+- **Block/Unblock User UX**: Added inline cancel buttons dan format pesan lebih informatif
+  - Shows example ID: `<code>123456789</code>`
+  - Consistent with other admin menus
+
+### Changed
+- **Removed Statistics Menu**: Removed "📊 Statistik" button dan handler (tidak berguna menurut user feedback)
+- **Product List Display**: Enhanced dengan pagination, navigation, dan product selection buttons
+- **Welcome Message**: Now shows inline keyboard untuk semua user (admin & customer), tidak hanya customer
+- **Code Refactoring**: 
+  - Reduced code duplication dengan reusable functions
+  - Better separation of concerns
+  - Improved error handling throughout
+
+### Documentation
+- Updated `docs/fixing_plan.md` dengan status perbaikan lengkap untuk 11 issues
+- Updated `docs/CHANGELOG.md` (this file) dengan v0.4.0 entry
+- Updated `docs/08_release_notes.md` dengan comprehensive release notes
+- Updated `docs/IMPLEMENTATION_REPORT.md` dengan technical details v0.4.0
+- Updated `README.md` version bump ke v0.4.0
+
+### Technical Details
+- **Files Modified**: 4 core files
+  - `src/bot/handlers.py` - Major refactoring (200+ lines changed)
+  - `src/bot/admin/admin_menu.py` - Removed statistics button
+  - `src/bot/admin/admin_actions.py` - Fixed voucher discount_type
+  - `src/services/terms.py` - Fixed SNK purge job
+- **Files Updated**: 5 (documentation files)
+- **Breaking Changes**: None (fully backward compatible)
+- **Database Changes**: None (no schema updates)
+- **Migration Required**: None (just restart bot)
+- **Performance Impact**: Positive (pagination improves loading time)
+
+---
+
 ## [0.3.0] – 2025-01-XX (UX Improvements & Bug Fixes)
 
 ### Added

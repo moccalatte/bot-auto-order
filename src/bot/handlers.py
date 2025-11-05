@@ -112,6 +112,69 @@ from src.services.terms import (
 logger = logging.getLogger(__name__)
 
 
+async def _send_welcome_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user: User,
+    message: Message | None = None,
+) -> None:
+    """Send welcome message with appropriate keyboards."""
+    settings = get_settings()
+    stats = await get_bot_statistics()
+    products = await list_products()
+
+    context.user_data["product_list"] = products
+
+    mention = user.first_name or "Sahabat"
+    welcome_text = messages.welcome_message(
+        mention=mention,
+        store_name=settings.store_name,
+        total_users=stats["total_users"],
+        total_transactions=stats["total_transactions"],
+    )
+
+    # Check if user is admin
+    is_admin = (
+        user.id in settings.telegram_admin_ids or user.id in settings.telegram_owner_ids
+    )
+
+    # Use admin keyboard for admins, regular keyboard for customers
+    from src.bot.admin.admin_menu import admin_main_menu
+
+    # Inline keyboard with quick actions (for both admin and customer)
+    inline_keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🏷 Cek Stok", callback_data="category:all"),
+                InlineKeyboardButton("🛍 Semua Produk", callback_data="category:all"),
+            ]
+        ]
+    )
+
+    target_message = message or update.message
+    if target_message is None:
+        return
+
+    if is_admin:
+        reply_keyboard = admin_main_menu()
+    else:
+        reply_keyboard = keyboards.main_reply_keyboard(range(1, min(len(products), 6)))
+
+    # Send welcome message with reply keyboard
+    await target_message.reply_text(
+        welcome_text,
+        reply_markup=reply_keyboard,
+        parse_mode=ParseMode.HTML,
+    )
+
+    # Send inline keyboard in a separate message
+    await target_message.reply_text(
+        "📱 <b>Aksi Cepat:</b>",
+        reply_markup=inline_keyboard,
+        parse_mode=ParseMode.HTML,
+    )
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command with welcome message and keyboards."""
     user = update.effective_user
@@ -136,60 +199,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         sticker="CAACAgIAAxkBAAIDbWkLZHuqPRCqCqmL9flozT9YJdWOAAIZUAAC4KOCB7lIn3OKexieNgQ"
     )
 
-    settings = get_settings()
-    stats = await get_bot_statistics()
-    products = await list_products()
-
-    context.user_data["product_list"] = products
-
-    mention = user.first_name or "Sahabat"
-    welcome_text = messages.welcome_message(
-        mention=mention,
-        store_name=settings.store_name,
-        total_users=stats["total_users"],
-        total_transactions=stats["total_transactions"],
-    )
-
-    # Check if user is admin
-    is_admin = (
-        user.id in settings.telegram_admin_ids or user.id in settings.telegram_owner_ids
-    )
-
-    # Use admin keyboard for admins, regular keyboard for customers
-    from src.bot.admin.admin_menu import admin_main_menu
-
-    if is_admin:
-        reply_keyboard = admin_main_menu()
-        # Send welcome message with reply keyboard only for admin
-        await update.message.reply_text(
-            welcome_text,
-            reply_markup=reply_keyboard,
-            parse_mode=ParseMode.HTML,
-        )
-    else:
-        reply_keyboard = keyboards.main_reply_keyboard(range(1, min(len(products), 6)))
-        # For customers, add inline keyboard with quick actions
-        inline_keyboard = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton("🏷 Cek Stok", callback_data="category:all"),
-                    InlineKeyboardButton(
-                        "🛍 Semua Produk", callback_data="category:all"
-                    ),
-                ]
-            ]
-        )
-        # Send welcome message with both reply keyboard and inline keyboard
-        await update.message.reply_text(
-            welcome_text,
-            reply_markup=reply_keyboard,
-            parse_mode=ParseMode.HTML,
-        )
-        # Send inline keyboard in a separate message
-        await update.message.reply_text(
-            "📱 Aksi Cepat:",
-            reply_markup=inline_keyboard,
-        )
+    await _send_welcome_message(update, context, user)
 
 
 def get_cart_manager(context: ContextTypes.DEFAULT_TYPE) -> CartManager:
@@ -223,17 +233,80 @@ async def handle_product_list(
     context: ContextTypes.DEFAULT_TYPE,
     products: Sequence[Product],
     title: str,
+    page: int = 0,
 ) -> None:
-    """Send formatted product list to user."""
-    _store_products(context, products)
-    header = messages.product_list_heading(title)
-    lines = [
-        messages.product_list_line(index, product)
-        for index, product in enumerate(products, start=1)
-    ]
-    await message.reply_text(
-        f"{header}\n" + "\n".join(lines[:10]), parse_mode=ParseMode.HTML
-    )
+    """Send formatted product list to user with pagination."""
+    try:
+        _store_products(context, products)
+
+        if not products:
+            await message.reply_text(
+                "📦 <b>Belum Ada Produk</b>\n\n"
+                "Saat ini belum ada produk yang tersedia.\n"
+                "Silakan cek lagi nanti ya! 😊",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        header = messages.product_list_heading(title)
+        lines = [
+            messages.product_list_line(index, product)
+            for index, product in enumerate(products, start=1)
+        ]
+
+        # Pagination: 5 products per page
+        items_per_page = 5
+        total_pages = (len(products) + items_per_page - 1) // items_per_page
+        page = max(0, min(page, total_pages - 1))
+
+        start_idx = page * items_per_page
+        end_idx = start_idx + items_per_page
+        page_lines = lines[start_idx:end_idx]
+
+        text = f"{header}\n" + "\n".join(page_lines)
+        text += f"\n\n📄 <b>Halaman {page + 1}/{total_pages}</b>"
+
+        # Build pagination buttons
+        buttons = []
+        nav_row = []
+        if page > 0:
+            nav_row.append(
+                InlineKeyboardButton(
+                    "⬅️ Previous", callback_data=f"products:page:{page - 1}"
+                )
+            )
+        if page < total_pages - 1:
+            nav_row.append(
+                InlineKeyboardButton(
+                    "➡️ Next", callback_data=f"products:page:{page + 1}"
+                )
+            )
+
+        if nav_row:
+            buttons.append(nav_row)
+
+        # Add product selection buttons (first 5 products on current page)
+        for idx, product in enumerate(products[start_idx:end_idx], start=start_idx):
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        f"🛒 {product.name} - {product.formatted_price}",
+                        callback_data=f"product:{product.id}",
+                    )
+                ]
+            )
+
+        keyboard = InlineKeyboardMarkup(buttons) if buttons else None
+
+        await message.reply_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    except Exception as exc:
+        logger.exception("Error displaying product list: %s", exc)
+        await message.reply_text(
+            "❌ <b>Gagal menampilkan produk</b>\n\n"
+            "Terjadi kesalahan saat memuat daftar produk.\n"
+            "Silakan coba lagi atau hubungi admin.",
+            parse_mode=ParseMode.HTML,
+        )
 
 
 def _parse_product_index(text: str) -> int | None:
@@ -1174,30 +1247,13 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
     if text == "⬅️ Kembali ke Menu Utama":
-        products: Sequence[Product] = context.user_data.get("product_list", [])
-        if not products:
-            products = await list_products()
-        context.user_data["product_list"] = products
+        if user:
+            await _send_welcome_message(update, context, user)
+        return
 
-        # Check if user is admin to show appropriate keyboard
-        settings = get_settings()
-        is_admin_user = user and (
-            user.id in settings.telegram_admin_ids
-            or user.id in settings.telegram_owner_ids
-        )
-
-        if is_admin_user:
-            from src.bot.admin.admin_menu import admin_main_menu
-
-            reply_keyboard = admin_main_menu()
-        else:
-            reply_keyboard = keyboards.main_reply_keyboard(
-                range(1, min(len(products), 6))
-            )
-
-        await update.message.reply_text(
-            "🏠 Kembali ke menu utama.", reply_markup=reply_keyboard
-        )
+    if text == "📋 List Produk" or text == "🛍 Semua Produk":
+        products = await list_products()
+        await handle_product_list(update.message, context, products, "Semua Produk")
         return
 
     if text == "🏷 Cek Stok":
@@ -1265,70 +1321,22 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    if text == "📊 Statistik":
-        if not is_admin:
-            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
-            return
-
-        stats = await get_bot_statistics()
-        users = await list_users(limit=100)
-        blocked = sum(1 for u in users if u.get("is_blocked", False))
-        products = await list_products(limit=100)
-
-        await update.message.reply_text(
-            f"📊 <b>Statistik Bot</b>\n\n"
-            f"👥 <b>Pengguna:</b>\n"
-            f"• Total: <b>{stats['total_users']}</b> orang\n"
-            f"• Diblokir: <b>{blocked}</b> orang\n"
-            f"• Aktif: <b>{stats['total_users'] - blocked}</b> orang\n\n"
-            f"💰 <b>Transaksi:</b>\n"
-            f"• Total: <b>{stats['total_transactions']}</b>x\n\n"
-            f"📦 <b>Produk:</b>\n"
-            f"• Total: <b>{len(products)}</b> item\n",
-            parse_mode=ParseMode.HTML,
-        )
-        return
-
     # Handle text-based cancel buttons (legacy support)
     if text in ["❌ Batal", "❌ Batal Broadcast"]:
         clear_admin_state(context.user_data)
-        from src.bot.admin.admin_menu import admin_main_menu
-
-        settings = get_settings()
-        stats = await get_bot_statistics()
-        mention = user.first_name if user else "Sahabat"
-
-        welcome_text = messages.welcome_message(
-            mention=mention,
-            store_name=settings.store_name,
-            total_users=stats["total_users"],
-            total_transactions=stats["total_transactions"],
-        )
 
         await update.message.reply_text(
             "✅ <b>Dibatalkan.</b>",
             parse_mode=ParseMode.HTML,
         )
-        await update.message.reply_text(
-            welcome_text,
-            reply_markup=admin_main_menu(),
-            parse_mode=ParseMode.HTML,
-        )
+
+        if user:
+            await _send_welcome_message(update, context, user)
         return
 
     if text == "⬅️ Kembali":
-        from src.bot.admin.admin_menu import admin_settings_menu
-
-        stats = await get_bot_statistics()
-
-        await update.message.reply_text(
-            f"⚙️ <b>Admin Settings</b>\n\n"
-            f"👤 Total Pengguna: <b>{stats['total_users']}</b> orang\n"
-            f"💰 Total Transaksi: <b>{stats['total_transactions']}</b>x\n\n"
-            f"Pilih menu di bawah:",
-            reply_markup=admin_settings_menu(),
-            parse_mode=ParseMode.HTML,
-        )
+        if user:
+            await _send_welcome_message(update, context, user)
         return
 
     # Handler untuk tombol Calculator (admin only)
@@ -1681,14 +1689,28 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         elif data == "admin:block_user":
             set_admin_state(context.user_data, "block_user")
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
+            )
             await update.effective_message.reply_text(
-                "🚫 Kirim ID user yang ingin diblokir."
+                "🚫 <b>Blokir User</b>\n\n"
+                "Kirim ID Telegram user yang ingin diblokir.\n\n"
+                "📝 Contoh: <code>123456789</code>",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
             )
             return
         elif data == "admin:unblock_user":
             set_admin_state(context.user_data, "unblock_user", unblock=True)
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
+            )
             await update.effective_message.reply_text(
-                "✅ Kirim ID user yang ingin di-unblokir."
+                "✅ <b>Unblokir User</b>\n\n"
+                "Kirim ID Telegram user yang ingin di-unblokir.\n\n"
+                "📝 Contoh: <code>123456789</code>",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
             )
             return
         elif data == "admin:generate_voucher":
@@ -1751,29 +1773,15 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             context.user_data.pop("calculator_formula_state", None)
             context.user_data.pop("pending_snk_product", None)
 
-            from src.bot.admin.admin_menu import admin_main_menu
-
-            settings = get_settings()
-            stats = await get_bot_statistics()
-            user = update.effective_user
-            mention = user.first_name if user else "Sahabat"
-
-            welcome_text = messages.welcome_message(
-                mention=mention,
-                store_name=settings.store_name,
-                total_users=stats["total_users"],
-                total_transactions=stats["total_transactions"],
-            )
-
             await update.effective_message.edit_text(
                 f"✅ <b>Dibatalkan.</b>",
                 parse_mode=ParseMode.HTML,
             )
-            await update.effective_message.reply_text(
-                welcome_text,
-                reply_markup=admin_main_menu(),
-                parse_mode=ParseMode.HTML,
-            )
+
+            if user:
+                await _send_welcome_message(
+                    update, context, user, update.effective_message
+                )
             return
         elif data.startswith("admin:add_snk:"):
             # Handle add SNK for product
@@ -2050,6 +2058,48 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
     # --- End Admin Menu Callback Integration ---
 
+    # --- Deposit Handlers ---
+    if data.startswith("deposit:"):
+        action = data.split(":", maxsplit=1)[1]
+        if action == "qris":
+            await query.answer()
+            await query.message.reply_text(
+                "💳 <b>Deposit via QRIS</b>\n\n"
+                "🔄 Fitur deposit QRIS sedang dalam pengembangan.\n\n"
+                "Untuk sementara, silakan gunakan metode <b>Transfer Manual</b> "
+                "atau hubungi admin untuk top-up saldo.\n\n"
+                "📱 Akan segera hadir dalam update mendatang!",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif action == "manual":
+            await query.answer()
+            settings = get_settings()
+            # Get admin/owner info for transfer
+            admin_contact = "admin"  # Default
+            if settings.telegram_owner_ids:
+                admin_contact = f"@user_id_{settings.telegram_owner_ids[0]}"
+
+            await query.message.reply_text(
+                "📝 <b>Deposit via Transfer Manual</b>\n\n"
+                "💰 <b>Cara Deposit:</b>\n"
+                "1. Transfer ke rekening yang diberikan admin\n"
+                "2. Screenshot bukti transfer\n"
+                "3. Kirim bukti ke admin dengan mention jumlah\n"
+                "4. Tunggu konfirmasi (max 1x24 jam)\n\n"
+                "👤 <b>Hubungi Admin:</b>\n"
+                f"Silakan hubungi {admin_contact} untuk detail rekening "
+                "dan konfirmasi deposit.\n\n"
+                "💡 <b>Tips:</b>\n"
+                "• Sertakan username Telegram kamu\n"
+                "• Cantumkan nominal yang ditransfer\n"
+                "• Simpan bukti transfer sampai dikonfirmasi\n\n"
+                "⚡ Saldo akan masuk otomatis setelah admin konfirmasi!",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+    # --- End Deposit Handlers ---
+
     cart_manager = get_cart_manager(context)
     cart = await cart_manager.get_cart(user.id)
 
@@ -2063,15 +2113,38 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             title = f"Produk {slug}"
         await handle_product_list(query.message, context, products, title)
         return
-        _store_products(context, products)
-        await query.message.reply_text(
-            f"{messages.product_list_heading(title)}\n"
-            + "\n".join(
-                messages.product_list_line(index, product)
-                for index, product in enumerate(products, start=1)
-            ),
-            parse_mode=ParseMode.HTML,
-        )
+
+    if data.startswith("products:page:"):
+        try:
+            page = int(data.split(":", maxsplit=2)[2])
+            products = context.user_data.get("product_list", [])
+            if not products:
+                products = await list_products()
+            await handle_product_list(
+                query.message, context, products, "Semua Produk", page=page
+            )
+        except (IndexError, ValueError) as exc:
+            logger.error("Invalid page callback: %s", exc)
+            await query.answer("❌ Halaman tidak valid", show_alert=True)
+        return
+
+    if data.startswith("product:"):
+        try:
+            product_id = int(data.split(":", maxsplit=1)[1])
+            product = await get_product(product_id)
+            if product is None:
+                await query.answer("❌ Produk tidak ditemukan", show_alert=True)
+                return
+            item = cart.items.get(product.id)
+            quantity = item.quantity if item else 0
+            await query.message.reply_text(
+                messages.product_detail(product, quantity),
+                reply_markup=keyboards.product_inline_keyboard(product, quantity),
+                parse_mode=ParseMode.HTML,
+            )
+        except (IndexError, ValueError) as exc:
+            logger.error("Invalid product callback: %s", exc)
+            await query.answer("❌ Produk tidak valid", show_alert=True)
         return
 
     if data.startswith("cart:"):

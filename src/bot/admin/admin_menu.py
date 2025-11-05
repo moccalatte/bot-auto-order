@@ -47,7 +47,7 @@ def admin_settings_menu() -> ReplyKeyboardMarkup:
         ["🛠 Kelola Respon Bot", "🛒 Kelola Produk"],
         ["📦 Kelola Order", "👥 Kelola User"],
         ["🎟️ Kelola Voucher", "📣 Broadcast Pesan"],
-        ["🧮 Calculator", "📊 Statistik"],
+        ["🧮 Calculator"],
         ["⬅️ Kembali ke Menu Utama"],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
