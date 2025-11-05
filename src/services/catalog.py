@@ -99,16 +99,20 @@ async def list_products(limit: int = 50) -> List[Product]:
 
 
 async def add_product(
-    category_id: int,
+    category_id: int | None,
     code: str,
     name: str,
     description: str,
     price_cents: int,
     stock: int,
 ) -> int:
-    """Tambah produk baru ke database."""
+    """Tambah produk baru ke database. category_id bisa NULL."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # Make category_id nullable in schema if not already
+        await conn.execute(
+            "ALTER TABLE products ALTER COLUMN category_id DROP NOT NULL;"
+        )
         row = await conn.fetchrow(
             """
             INSERT INTO products (category_id, code, name, description, price_cents, stock)

@@ -59,6 +59,7 @@ from src.bot.admin.admin_actions import (
     render_user_overview,
     render_voucher_overview,
     save_product_snk,
+    parse_price_to_cents,
 )
 from src.bot.admin.admin_state import (
     clear_admin_state,
@@ -88,6 +89,7 @@ from src.services.calculator import (
 from src.services.users import (
     is_user_blocked,
     list_broadcast_targets,
+    list_users,
     mark_user_bot_blocked,
 )
 from src.services.broadcast_queue import (
@@ -163,20 +165,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         reply_keyboard = keyboards.main_reply_keyboard(range(1, min(len(products), 6)))
 
-    # Gabungkan welcome text dengan inline keyboard kategori dalam satu pesan
-    combined_text = f"{welcome_text}\n\n🪄 <b>Pilih kategori favoritmu ya!</b>"
-
+    # Send welcome message with reply keyboard only (no extra messages)
+    # User requested ONLY 2 messages: sticker + welcome
     await update.message.reply_text(
-        combined_text,
-        reply_markup=keyboards.category_inline_keyboard(categories),
-        parse_mode=ParseMode.HTML,
-        reply_to_message_id=update.message.message_id,
-    )
-
-    # Set reply keyboard without additional message
-    await update.message.reply_text(
-        "💬",  # Simple chat icon to attach keyboard
+        welcome_text,
         reply_markup=reply_keyboard,
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -656,10 +650,237 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             reply_kwargs: Dict[str, Any] = {}
             keep_state = False
             try:
-                if state.action == "add_product":
-                    response = await handle_add_product_input(
-                        text, user.id, context=context
-                    )  # type: ignore[arg-type]
+                if state.action == "add_product_step":
+                    # Handle step-by-step wizard for adding product
+                    step = state.payload.get("step", "code")
+                    product_data = state.payload.get("product_data", {})
+
+                    cancel_keyboard = InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "❌ Batal", callback_data="admin:cancel"
+                                )
+                            ]
+                        ]
+                    )
+
+                    if step == "code":
+                        # Save code and ask for name
+                        product_data["code"] = text.strip()
+                        set_admin_state(
+                            context.user_data,
+                            "add_product_step",
+                            step="name",
+                            product_data=product_data,
+                        )
+                        await update.message.reply_text(
+                            "➕ <b>Tambah Produk Baru</b>\n\n"
+                            "Langkah 2/5: Kirim <b>nama produk</b> (contoh: Netflix Premium 1 Bulan)\n\n"
+                            f"✅ Kode: <code>{product_data['code']}</code>",
+                            reply_markup=cancel_keyboard,
+                            parse_mode=ParseMode.HTML,
+                        )
+                        return
+                    elif step == "name":
+                        # Save name and ask for price
+                        product_data["name"] = text.strip()
+                        set_admin_state(
+                            context.user_data,
+                            "add_product_step",
+                            step="price",
+                            product_data=product_data,
+                        )
+                        await update.message.reply_text(
+                            "➕ <b>Tambah Produk Baru</b>\n\n"
+                            "Langkah 3/5: Kirim <b>harga produk</b> (contoh: 50000)\n\n"
+                            f"✅ Kode: <code>{product_data['code']}</code>\n"
+                            f"✅ Nama: <b>{product_data['name']}</b>",
+                            reply_markup=cancel_keyboard,
+                            parse_mode=ParseMode.HTML,
+                        )
+                        return
+                    elif step == "price":
+                        # Save price and ask for stock
+                        try:
+                            price_cents = parse_price_to_cents(text.strip())
+                            product_data["price_cents"] = price_cents
+                        except AdminActionError as exc:
+                            await update.message.reply_text(
+                                f"❌ {exc}\n\nSilakan kirim harga yang valid (contoh: 50000)",
+                                reply_markup=cancel_keyboard,
+                                parse_mode=ParseMode.HTML,
+                            )
+                            return
+                        set_admin_state(
+                            context.user_data,
+                            "add_product_step",
+                            step="stock",
+                            product_data=product_data,
+                        )
+                        await update.message.reply_text(
+                            "➕ <b>Tambah Produk Baru</b>\n\n"
+                            "Langkah 4/5: Kirim <b>jumlah stok</b> (contoh: 100)\n\n"
+                            f"✅ Kode: <code>{product_data['code']}</code>\n"
+                            f"✅ Nama: <b>{product_data['name']}</b>\n"
+                            f"✅ Harga: <b>{format_rupiah(product_data['price_cents'])}</b>",
+                            reply_markup=cancel_keyboard,
+                            parse_mode=ParseMode.HTML,
+                        )
+                        return
+                    elif step == "stock":
+                        # Save stock and ask for description
+                        try:
+                            stock = int(text.strip())
+                            product_data["stock"] = stock
+                        except ValueError:
+                            await update.message.reply_text(
+                                "❌ Stok harus berupa angka.\n\nSilakan kirim stok yang valid (contoh: 100)",
+                                reply_markup=cancel_keyboard,
+                                parse_mode=ParseMode.HTML,
+                            )
+                            return
+                        set_admin_state(
+                            context.user_data,
+                            "add_product_step",
+                            step="description",
+                            product_data=product_data,
+                        )
+                        await update.message.reply_text(
+                            "➕ <b>Tambah Produk Baru</b>\n\n"
+                            "Langkah 5/5: Kirim <b>deskripsi produk</b> (atau ketik - untuk skip)\n\n"
+                            f"✅ Kode: <code>{product_data['code']}</code>\n"
+                            f"✅ Nama: <b>{product_data['name']}</b>\n"
+                            f"✅ Harga: <b>{format_rupiah(product_data['price_cents'])}</b>\n"
+                            f"✅ Stok: <b>{product_data['stock']}</b> pcs",
+                            reply_markup=cancel_keyboard,
+                            parse_mode=ParseMode.HTML,
+                        )
+                        return
+                    elif step == "description":
+                        # Save description and create product
+                        description = text.strip() if text.strip() != "-" else ""
+                        product_data["description"] = description
+
+                        # Create product (without category_id)
+                        try:
+                            product_id = await add_product(
+                                category_id=None,  # No category needed
+                                code=product_data["code"],
+                                name=product_data["name"],
+                                description=product_data["description"],
+                                price_cents=product_data["price_cents"],
+                                stock=product_data["stock"],
+                            )
+
+                            response = (
+                                f"✅ <b>Produk berhasil ditambahkan!</b>\n\n"
+                                f"🆔 ID: <code>{product_id}</code>\n"
+                                f"📦 Kode: <code>{product_data['code']}</code>\n"
+                                f"📝 Nama: <b>{product_data['name']}</b>\n"
+                                f"💰 Harga: <b>{format_rupiah(product_data['price_cents'])}</b>\n"
+                                f"📊 Stok: <b>{product_data['stock']}</b> pcs\n"
+                                f"📄 Deskripsi: {product_data['description'] or '-'}"
+                            )
+
+                            # Store for SNK prompt
+                            context.user_data["pending_snk_product"] = {
+                                "product_id": product_id,
+                                "product_name": product_data["name"],
+                            }
+
+                            clear_admin_state(context.user_data)
+                            await update.message.reply_text(
+                                response, parse_mode=ParseMode.HTML
+                            )
+
+                            # Ask about SNK with inline keyboard
+                            snk_keyboard = InlineKeyboardMarkup(
+                                [
+                                    [
+                                        InlineKeyboardButton(
+                                            "➕ Tambah SNK",
+                                            callback_data=f"admin:add_snk:{product_id}",
+                                        )
+                                    ],
+                                    [
+                                        InlineKeyboardButton(
+                                            "⏭ Skip", callback_data="admin:skip_snk"
+                                        )
+                                    ],
+                                ]
+                            )
+                            await update.message.reply_text(
+                                "📜 Apakah ingin menambahkan Syarat & Ketentuan (SNK) untuk produk ini?",
+                                reply_markup=snk_keyboard,
+                                parse_mode=ParseMode.HTML,
+                            )
+                            return
+                        except Exception as exc:
+                            logger.exception("Error adding product: %s", exc)
+                            await update.message.reply_text(
+                                f"❌ Gagal menambahkan produk: {exc}",
+                                parse_mode=ParseMode.HTML,
+                            )
+                            clear_admin_state(context.user_data)
+                            return
+
+                    return
+                elif state.action == "edit_product_value":
+                    # Handle field value input for edit product
+                    product_id = state.payload.get("product_id")
+                    field = state.payload.get("field")
+                    value = text.strip()
+
+                    cancel_keyboard = InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "❌ Batal", callback_data="admin:cancel"
+                                )
+                            ]
+                        ]
+                    )
+
+                    try:
+                        if field == "name":
+                            await edit_product(product_id, name=value)
+                            response = f"✅ Nama produk berhasil diupdate menjadi: <b>{value}</b>"
+                        elif field == "price":
+                            price_cents = parse_price_to_cents(value)
+                            await edit_product(product_id, price_cents=price_cents)
+                            response = f"✅ Harga produk berhasil diupdate menjadi: <b>{format_rupiah(price_cents)}</b>"
+                        elif field == "stock":
+                            stock = int(value)
+                            await edit_product(product_id, stock=stock)
+                            response = f"✅ Stok produk berhasil diupdate menjadi: <b>{stock}</b> pcs"
+                        elif field == "description":
+                            await edit_product(product_id, description=value)
+                            response = f"✅ Deskripsi produk berhasil diupdate"
+                        else:
+                            response = "❌ Field tidak dikenali."
+
+                        clear_admin_state(context.user_data)
+                        await update.message.reply_text(
+                            response,
+                            parse_mode=ParseMode.HTML,
+                        )
+                        return
+                    except ValueError:
+                        await update.message.reply_text(
+                            "❌ Nilai tidak valid. Pastikan format benar.",
+                            reply_markup=cancel_keyboard,
+                            parse_mode=ParseMode.HTML,
+                        )
+                        return
+                    except Exception as exc:
+                        logger.exception("Error updating product: %s", exc)
+                        await update.message.reply_text(
+                            f"❌ Gagal mengupdate produk: {exc}",
+                            parse_mode=ParseMode.HTML,
+                        )
+                        clear_admin_state(context.user_data)
+                        return
                 elif state.action == "add_product_snk_choice":
                     await _handle_add_product_snk_choice(update, context, state, text)
                     return
@@ -668,8 +889,122 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     if not product_id:
                         response = "⚠️ Produk untuk SNK tidak ditemukan."
                     else:
-                        response = await save_product_snk(product_id, text, user.id)
+                        # Handle delete SNK
+                        if text.strip().lower() == "hapus":
+                            await clear_product_terms(product_id)
+                            response = f"✅ SNK produk berhasil dihapus."
+                        else:
+                            response = await save_product_snk(product_id, text, user.id)
                     reply_kwargs["reply_markup"] = ReplyKeyboardRemove()
+                elif state.action == "generate_voucher":
+                    response = await handle_generate_voucher_input(text, user.id)  # type: ignore[arg-type]
+                elif state.action == "delete_voucher":
+                    response = await handle_delete_voucher_input(text, user.id)  # type: ignore[arg-type]
+                # Handle refund calculator states
+                elif "refund_calculator_state" in context.user_data:
+                    calc_state = context.user_data["refund_calculator_state"]
+                    if calc_state == "waiting_price":
+                        try:
+                            harga = int(text.strip())
+                            context.user_data["refund_harga"] = harga
+                            context.user_data["refund_calculator_state"] = (
+                                "waiting_days"
+                            )
+                            cancel_keyboard = InlineKeyboardMarkup(
+                                [
+                                    [
+                                        InlineKeyboardButton(
+                                            "❌ Batal", callback_data="admin:cancel"
+                                        )
+                                    ]
+                                ]
+                            )
+                            await update.message.reply_text(
+                                f"✅ Harga: <b>{format_rupiah(harga * 100)}</b>\n\n"
+                                "Sekarang masukkan <b>sisa hari</b> berlaku (contoh: 15):",
+                                reply_markup=cancel_keyboard,
+                                parse_mode=ParseMode.HTML,
+                            )
+                            return
+                        except ValueError:
+                            await update.message.reply_text(
+                                "❌ Harga harus berupa angka. Coba lagi:",
+                                parse_mode=ParseMode.HTML,
+                            )
+                            return
+                    elif calc_state == "waiting_days":
+                        try:
+                            sisa_hari = int(text.strip())
+                            harga = context.user_data.get("refund_harga", 0)
+                            config = load_config()
+                            refund = calculate_refund(harga, sisa_hari, config)
+
+                            # Save to history
+                            add_history(harga, sisa_hari, refund, user.id)
+
+                            # Clear state
+                            context.user_data.pop("refund_calculator_state", None)
+                            context.user_data.pop("refund_harga", None)
+
+                            await update.message.reply_text(
+                                f"🧮 <b>Hasil Perhitungan Refund</b>\n\n"
+                                f"💰 Harga: <b>{format_rupiah(harga * 100)}</b>\n"
+                                f"📅 Sisa Hari: <b>{sisa_hari}</b> hari\n"
+                                f"↩️ <b>Refund: {format_rupiah(refund * 100)}</b>\n\n"
+                                f"Formula: <code>{config.get('formula', 'harga * (sisa_hari / 30)')}</code>",
+                                parse_mode=ParseMode.HTML,
+                            )
+                            return
+                        except ValueError:
+                            await update.message.reply_text(
+                                "❌ Sisa hari harus berupa angka. Coba lagi:",
+                                parse_mode=ParseMode.HTML,
+                            )
+                            return
+                        except Exception as exc:
+                            logger.exception("Error calculating refund: %s", exc)
+                            context.user_data.pop("refund_calculator_state", None)
+                            context.user_data.pop("refund_harga", None)
+                            await update.message.reply_text(
+                                f"❌ Error dalam perhitungan: {exc}",
+                                parse_mode=ParseMode.HTML,
+                            )
+                            return
+                # Handle calculator formula setup
+                elif "calculator_formula_state" in context.user_data:
+                    formula_state = context.user_data["calculator_formula_state"]
+                    if formula_state == "waiting_formula":
+                        try:
+                            new_formula = text.strip()
+                            # Validate formula (basic check)
+                            if (
+                                "harga" not in new_formula
+                                or "sisa_hari" not in new_formula
+                            ):
+                                await update.message.reply_text(
+                                    "❌ Formula harus mengandung variabel <code>harga</code> dan <code>sisa_hari</code>",
+                                    parse_mode=ParseMode.HTML,
+                                )
+                                return
+
+                            # Update config
+                            update_config({"formula": new_formula})
+                            context.user_data.pop("calculator_formula_state", None)
+
+                            await update.message.reply_text(
+                                f"✅ <b>Formula berhasil diupdate!</b>\n\n"
+                                f"Formula baru: <code>{new_formula}</code>",
+                                parse_mode=ParseMode.HTML,
+                            )
+                            return
+                        except Exception as exc:
+                            logger.exception("Error updating formula: %s", exc)
+                            context.user_data.pop("calculator_formula_state", None)
+                            await update.message.reply_text(
+                                f"❌ Error mengupdate formula: {exc}",
+                                parse_mode=ParseMode.HTML,
+                            )
+                            return
                 elif state.action == "broadcast_message":
                     if text.strip().lower() in ["batal", "❌ batal broadcast"]:
                         response = "🚫 Broadcast dibatalkan."
@@ -693,12 +1028,6 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                                 int(result["job_id"]),
                                 result.get("counts", {}),
                             )
-                elif state.action == "manage_product_snk":
-                    response = await handle_manage_product_snk_input(text, user.id)  # type: ignore[arg-type]
-                elif state.action == "edit_product":
-                    response = await handle_edit_product_input(text, user.id)  # type: ignore[arg-type]
-                elif state.action == "delete_product":
-                    response = await handle_delete_product_input(text, user.id)  # type: ignore[arg-type]
                 elif state.action == "update_order":
                     response = await handle_update_order_input(text, user.id)  # type: ignore[arg-type]
                 elif state.action == "block_user":
@@ -709,10 +1038,6 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                         user.id,  # type: ignore[arg-type]
                         unblock=state.payload.get("unblock", False),
                     )
-                elif state.action == "generate_voucher":
-                    response = await handle_generate_voucher_input(text, user.id)  # type: ignore[arg-type]
-                elif state.action == "delete_voucher":
-                    response = await handle_delete_voucher_input(text, user.id)  # type: ignore[arg-type]
                 else:
                     response = "⚠️ Aksi admin tidak dikenali."
                     clear_admin_state(context.user_data)
@@ -732,22 +1057,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             if keep_state and state.action == "broadcast_message":
                 set_admin_state(context.user_data, "broadcast_message")
             await update.message.reply_text(response, **reply_kwargs)
-            if state.action == "add_product":
-                pending = context.user_data.pop("pending_snk_product", None)
-                if pending:
-                    set_admin_state(
-                        context.user_data,
-                        "add_product_snk_choice",
-                        **pending,
-                    )
-                    await update.message.reply_text(
-                        "Apakah kamu ingin tambahkan SNK untuk produk ini? klik tombol dibawah",
-                        reply_markup=ReplyKeyboardMarkup(
-                            [["Tambah SNK", "Skip SNK"]],
-                            resize_keyboard=True,
-                            one_time_keyboard=True,
-                        ),
-                    )
+            # Removed old add_product SNK prompt - now handled in wizard
             return
 
     # Admin Settings - Main Entry Point
@@ -872,7 +1182,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    if text == "📊 Cek Stok":
+    if text == "🏷 Cek Stok":
         products = await list_products(limit=10)
         lines = [
             f"{product.name} • 📦 {product.stock}x • 🔥 {product.sold_count}x"
@@ -915,7 +1225,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    if text == "💼 Deposit":
+    if text == "💰 Deposit":
         deposit_keyboard = InlineKeyboardMarkup(
             [
                 [InlineKeyboardButton("💳 Deposit QRIS", callback_data="deposit:qris")],
@@ -1022,20 +1332,39 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if not is_admin:
             await update.message.reply_text("❌ Kamu tidak punya akses admin.")
             return
+        # Directly start refund calculator
+        cancel_keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
+        )
         await update.message.reply_text(
-            "Gunakan command: <code>/refund_calculator</code>",
+            "🧮 <b>Kalkulator Refund</b>\n\n"
+            "Masukkan <b>harga langganan</b> (contoh: 50000):",
+            reply_markup=cancel_keyboard,
             parse_mode=ParseMode.HTML,
         )
+        context.user_data["refund_calculator_state"] = "waiting_price"
         return
 
     if text == "⚙️ Atur Formula":
         if not is_admin:
             await update.message.reply_text("❌ Kamu tidak punya akses admin.")
             return
+        # Directly start formula setup
+        cancel_keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
+        )
+        config = load_config()
         await update.message.reply_text(
-            "Gunakan command: <code>/set_calculator</code>",
+            "⚙️ <b>Atur Formula Refund</b>\n\n"
+            f"Formula saat ini: <code>{config.get('formula', 'harga * (sisa_hari / 30)')}</code>\n\n"
+            "Kirim formula baru (contoh: <code>harga * (sisa_hari / 30)</code>)\n\n"
+            "💡 Variabel yang tersedia:\n"
+            "• <code>harga</code> - Harga langganan\n"
+            "• <code>sisa_hari</code> - Sisa hari berlaku",
+            reply_markup=cancel_keyboard,
             parse_mode=ParseMode.HTML,
         )
+        context.user_data["calculator_formula_state"] = "waiting_formula"
         return
 
     if text == "📜 Riwayat Kalkulasi":
@@ -1188,26 +1517,113 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return
         elif data == "admin:add_product":
-            set_admin_state(context.user_data, "add_product")
-            categories_text = await list_categories_overview()
+            set_admin_state(context.user_data, "add_product_step", step="code")
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
+            )
             await update.effective_message.reply_text(
-                "➕ Format tambah produk:\n"
-                "kategori_id|kode|nama|harga|stok|deskripsi\n"
-                "Catatan: unggah gambar dikurasi terpisah oleh owner jika diperlukan.\n\n"
-                f"{categories_text}"
+                "➕ <b>Tambah Produk Baru</b>\n\n"
+                "Langkah 1/5: Kirim <b>kode produk</b> (contoh: NETFLIX1M, SPOTIFY1T)\n\n"
+                "💡 Kode produk adalah identifikasi unik untuk produk ini.",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
             )
             return
         elif data == "admin:edit_product":
-            set_admin_state(context.user_data, "edit_product")
+            products = await list_products(limit=50)
+            if not products:
+                await update.effective_message.reply_text(
+                    "❌ Belum ada produk yang bisa diedit.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            set_admin_state(context.user_data, "edit_product_step", step="select")
+
+            # Show product list with inline buttons
+            buttons = []
+            for p in products[:20]:  # Limit to 20 for UI
+                buttons.append(
+                    [
+                        InlineKeyboardButton(
+                            f"{p.name} - {format_rupiah(p.price_cents)}",
+                            callback_data=f"admin:edit_product_select:{p.id}",
+                        )
+                    ]
+                )
+            buttons.append(
+                [InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]
+            )
+
             await update.effective_message.reply_text(
-                "📝 Format edit: produk_id|field=value,field=value\n"
-                "Field: name, description, price, stock, code, category_id."
+                "📝 <b>Edit Produk</b>\n\nPilih produk yang ingin diedit:",
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=ParseMode.HTML,
             )
             return
         elif data == "admin:delete_product":
-            set_admin_state(context.user_data, "delete_product")
+            products = await list_products(limit=50)
+            if not products:
+                await update.effective_message.reply_text(
+                    "❌ Belum ada produk yang bisa dihapus.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            set_admin_state(context.user_data, "delete_product_step", step="select")
+
+            # Show product list with inline buttons
+            buttons = []
+            for p in products[:20]:
+                buttons.append(
+                    [
+                        InlineKeyboardButton(
+                            f"🗑️ {p.name}",
+                            callback_data=f"admin:delete_product_select:{p.id}",
+                        )
+                    ]
+                )
+            buttons.append(
+                [InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]
+            )
+
             await update.effective_message.reply_text(
-                "🗑️ Kirim ID produk yang ingin dihapus."
+                "🗑️ <b>Hapus Produk</b>\n\nPilih produk yang ingin dihapus:",
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data == "admin:snk_product":
+            products = await list_products(limit=50)
+            if not products:
+                await update.effective_message.reply_text(
+                    "❌ Belum ada produk.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            set_admin_state(context.user_data, "snk_product_step", step="select")
+
+            # Show product list with inline buttons
+            buttons = []
+            for p in products[:20]:
+                buttons.append(
+                    [
+                        InlineKeyboardButton(
+                            f"{p.name}",
+                            callback_data=f"admin:snk_product_select:{p.id}",
+                        )
+                    ]
+                )
+            buttons.append(
+                [InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]
+            )
+
+            await update.effective_message.reply_text(
+                "📜 <b>Kelola SNK Produk</b>\n\n"
+                "Pilih produk untuk mengatur Syarat & Ketentuan:",
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=ParseMode.HTML,
             )
             return
         elif data == "admin:snk_product":
@@ -1246,19 +1662,16 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         elif data == "admin:generate_voucher":
             set_admin_state(context.user_data, "generate_voucher")
-            cancel_keyboard = ReplyKeyboardMarkup(
-                [["❌ Batal"]],
-                resize_keyboard=True,
-                one_time_keyboard=True,
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
             )
             await update.effective_message.reply_text(
                 "➕ <b>Buat Voucher Baru</b>\n\n"
                 "Kirim format sederhana:\n"
-                "<code>KODE | NOMINAL | BATAS_PAKAI</code>\n\n"
+                "<b>KODE | NOMINAL | BATAS_PAKAI</b>\n\n"
                 "📝 Contoh:\n"
                 "<code>HEMAT10 | 10% | 100</code>\n"
-                "<code>DISKON5K | 5000 | 50</code>\n\n"
-                "Ketik <b>❌ Batal</b> untuk membatalkan.",
+                "<code>DISKON5K | 5000 | 50</code>",
                 reply_markup=cancel_keyboard,
                 parse_mode=ParseMode.HTML,
             )
@@ -1284,10 +1697,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         elif data == "admin:edit_welcome":
             set_admin_state(context.user_data, "edit_welcome_message")
-            cancel_keyboard = ReplyKeyboardMarkup(
-                [["❌ Batal"]],
-                resize_keyboard=True,
-                one_time_keyboard=True,
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
             )
             await update.effective_message.reply_text(
                 "🌟 <b>Edit Welcome Message</b>\n\n"
@@ -1296,18 +1707,237 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "💡 Placeholder yang bisa dipakai:\n"
                 "• <code>{nama}</code> - Nama user\n"
                 "• <code>{store_name}</code> - Nama toko\n"
-                "• <code>{total_users}</code> - Total pengguna\n\n"
-                "Ketik <b>❌ Batal</b> untuk membatalkan.",
+                "• <code>{total_users}</code> - Total pengguna",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data == "admin:cancel":
+            # Handle cancel button - clear all states and return to admin menu
+            clear_admin_state(context.user_data)
+            context.user_data.pop("refund_calculator_state", None)
+            context.user_data.pop("refund_harga", None)
+            context.user_data.pop("calculator_formula_state", None)
+            context.user_data.pop("pending_snk_product", None)
+
+            from src.bot.admin.admin_menu import admin_settings_menu
+
+            stats = await get_bot_statistics()
+            await update.effective_message.edit_text(
+                f"✅ <b>Dibatalkan.</b>\n\n"
+                f"⚙️ <b>Admin Settings</b>\n\n"
+                f"👤 Total Pengguna: <b>{stats['total_users']}</b> orang\n"
+                f"💰 Total Transaksi: <b>{stats['total_transactions']}</b>x\n\n"
+                f"Pilih menu di bawah:",
+                parse_mode=ParseMode.HTML,
+            )
+            await update.effective_message.reply_text(
+                "Kembali ke menu admin.",
+                reply_markup=admin_settings_menu(),
+            )
+            return
+        elif data.startswith("admin:add_snk:"):
+            # Handle add SNK for product
+            product_id = int(data.split(":")[2])
+            set_admin_state(
+                context.user_data, "add_product_snk_input", product_id=product_id
+            )
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
+            )
+            await update.effective_message.reply_text(
+                "📜 <b>Tambah SNK Produk</b>\n\n"
+                "Silakan kirim Syarat & Ketentuan untuk produk ini.\n"
+                "Kamu bisa tulis beberapa baris untuk menjelaskan:\n"
+                "• Aturan penggunaan\n"
+                "• Langkah login/aktivasi\n"
+                "• Batas waktu klaim\n"
+                "• Garansi (jika ada)",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data == "admin:skip_snk":
+            # Skip SNK after adding product
+            clear_admin_state(context.user_data)
+            context.user_data.pop("pending_snk_product", None)
+            await update.effective_message.edit_text(
+                "✅ <b>Produk berhasil ditambahkan tanpa SNK.</b>\n\n"
+                "Kamu bisa menambahkan SNK nanti melalui menu <b>📜 Kelola SNK Produk</b>.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data.startswith("admin:edit_product_select:"):
+            # Handle product selection for edit
+            product_id = int(data.split(":")[2])
+            product = await get_product(product_id)
+            if not product:
+                await update.effective_message.reply_text(
+                    "❌ Produk tidak ditemukan.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            set_admin_state(
+                context.user_data,
+                "edit_product_field",
+                product_id=product_id,
+                step="field",
+            )
+
+            # Show edit menu
+            edit_keyboard = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "📝 Edit Nama",
+                            callback_data=f"admin:edit_field:name:{product_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "💰 Edit Harga",
+                            callback_data=f"admin:edit_field:price:{product_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "📊 Edit Stok",
+                            callback_data=f"admin:edit_field:stock:{product_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "📄 Edit Deskripsi",
+                            callback_data=f"admin:edit_field:description:{product_id}",
+                        )
+                    ],
+                    [InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")],
+                ]
+            )
+
+            await update.effective_message.edit_text(
+                f"📝 <b>Edit Produk</b>\n\n"
+                f"<b>Produk:</b> {product.name}\n"
+                f"<b>Harga:</b> {format_rupiah(product.price_cents)}\n"
+                f"<b>Stok:</b> {product.stock} pcs\n\n"
+                f"Pilih field yang ingin diedit:",
+                reply_markup=edit_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data.startswith("admin:edit_field:"):
+            # Handle field selection for edit
+            parts = data.split(":")
+            field = parts[2]
+            product_id = int(parts[3])
+
+            set_admin_state(
+                context.user_data,
+                "edit_product_value",
+                product_id=product_id,
+                field=field,
+            )
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
+            )
+
+            field_names = {
+                "name": "nama produk",
+                "price": "harga (contoh: 50000)",
+                "stock": "stok (contoh: 100)",
+                "description": "deskripsi produk",
+            }
+
+            await update.effective_message.reply_text(
+                f"📝 <b>Edit {field_names.get(field, field)}</b>\n\n"
+                f"Kirim nilai baru untuk {field_names.get(field, field)}:",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data.startswith("admin:delete_product_select:"):
+            # Handle product selection for delete
+            product_id = int(data.split(":")[2])
+            product = await get_product(product_id)
+            if not product:
+                await update.effective_message.reply_text(
+                    "❌ Produk tidak ditemukan.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            # Confirm deletion
+            confirm_keyboard = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "✅ Ya, Hapus",
+                            callback_data=f"admin:delete_product_confirm:{product_id}",
+                        )
+                    ],
+                    [InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")],
+                ]
+            )
+
+            await update.effective_message.edit_text(
+                f"🗑️ <b>Konfirmasi Hapus Produk</b>\n\n"
+                f"<b>Produk:</b> {product.name}\n"
+                f"<b>Harga:</b> {format_rupiah(product.price_cents)}\n"
+                f"<b>Stok:</b> {product.stock} pcs\n\n"
+                f"⚠️ <b>Peringatan:</b> Produk yang sudah dihapus tidak bisa dikembalikan!\n\n"
+                f"Yakin ingin menghapus produk ini?",
+                reply_markup=confirm_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data.startswith("admin:delete_product_confirm:"):
+            # Handle delete confirmation
+            product_id = int(data.split(":")[2])
+            try:
+                await delete_product(product_id)
+                await update.effective_message.edit_text(
+                    f"✅ <b>Produk berhasil dihapus!</b>\n\n"
+                    f"Produk dengan ID <code>{product_id}</code> telah dihapus dari database.",
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception as exc:
+                logger.exception("Error deleting product: %s", exc)
+                await update.effective_message.edit_text(
+                    f"❌ Gagal menghapus produk: {exc}",
+                    parse_mode=ParseMode.HTML,
+                )
+            return
+        elif data.startswith("admin:snk_product_select:"):
+            # Handle product selection for SNK management
+            product_id = int(data.split(":")[2])
+            product = await get_product(product_id)
+            if not product:
+                await update.effective_message.reply_text(
+                    "❌ Produk tidak ditemukan.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            set_admin_state(
+                context.user_data, "add_product_snk_input", product_id=product_id
+            )
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
+            )
+
+            await update.effective_message.reply_text(
+                f"📜 <b>Kelola SNK: {product.name}</b>\n\n"
+                f"Kirim SNK baru untuk produk ini.\n"
+                f"Atau ketik <code>hapus</code> untuk menghapus SNK yang ada.",
                 reply_markup=cancel_keyboard,
                 parse_mode=ParseMode.HTML,
             )
             return
         elif data == "admin:edit_payment_success":
             set_admin_state(context.user_data, "edit_payment_success")
-            cancel_keyboard = ReplyKeyboardMarkup(
-                [["❌ Batal"]],
-                resize_keyboard=True,
-                one_time_keyboard=True,
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
             )
             await update.effective_message.reply_text(
                 "🎉 <b>Edit Payment Success Message</b>\n\n"
@@ -1323,10 +1953,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         elif data == "admin:edit_error":
             set_admin_state(context.user_data, "edit_error_message")
-            cancel_keyboard = ReplyKeyboardMarkup(
-                [["❌ Batal"]],
-                resize_keyboard=True,
-                one_time_keyboard=True,
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
             )
             await update.effective_message.reply_text(
                 "⚠️ <b>Edit Error Message</b>\n\n"
@@ -1338,12 +1966,11 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         elif data == "admin:edit_product":
             set_admin_state(context.user_data, "edit_product_message")
-            cancel_keyboard = ReplyKeyboardMarkup(
-                [["❌ Batal"]],
-                resize_keyboard=True,
-                one_time_keyboard=True,
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
             )
             await update.effective_message.reply_text(
+                "📦 <b>Edit Product Message</b>\n\n"
                 "📦 <b>Edit Product Message Template</b>\n\n"
                 "Kirim template pesan produk baru.\n\n"
                 "💡 Placeholder:\n"

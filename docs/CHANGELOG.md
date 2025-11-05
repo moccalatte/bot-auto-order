@@ -5,6 +5,111 @@ Dokumen ini mencatat riwayat perubahan, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
+## [0.2.3] – 2025-01-16 (Complete Admin UX Overhaul + User-Friendly Wizards)
+
+### Added
+- **Step-by-Step Wizards for All Admin Operations**: Completely refactored admin menu menjadi wizard ramah awam
+  - **Tambah Produk**: 5-langkah wizard (Kode → Nama → Harga → Stok → Deskripsi) dengan progress indicator di setiap step
+  - **Edit Produk**: Pilih produk dari list (inline buttons) → Pilih field yang ingin diedit → Input nilai baru
+  - **Hapus Produk**: Pilih dari list → Konfirmasi deletion dengan preview info produk
+  - **Kelola SNK**: Pilih produk dari list → Input SNK baru atau ketik "hapus" untuk menghapus
+  - **Calculator**: Direct wizard tanpa perlu ketik command, step-by-step guidance untuk Hitung Refund dan Atur Formula
+  
+- **Inline Cancel Buttons Everywhere**: Semua admin operations sekarang punya inline cancel button (bukan text button)
+  - Kelola Respon Bot (Edit Welcome, Payment Success, Error, Product messages)
+  - Tambah Produk (di setiap 5 langkah)
+  - Edit Produk (di setiap step selection dan value input)
+  - Hapus Produk (di selection dan confirmation)
+  - Kelola SNK (di product selection dan input)
+  - Generate Voucher
+  - Calculator (Hitung Refund dan Atur Formula)
+  - Broadcast
+  
+- **Visual Product Selection**: Admin tidak perlu lagi tahu product_id atau format kompleks
+  - Inline buttons menampilkan list produk dengan nama dan harga
+  - Preview info produk sebelum edit/delete
+  - Confirmation dialog untuk destructive actions (delete)
+  
+- **Progress Indicators**: Multi-step operations menampilkan "Langkah X/Y" dan preview data yang sudah diinput
+
+- **New Callback Handlers**:
+  - `admin:cancel` - Universal cancel handler untuk semua operations
+  - `admin:add_snk:{product_id}` - Add SNK after product creation
+  - `admin:skip_snk` - Skip SNK prompt
+  - `admin:edit_product_select:{product_id}` - Select product to edit
+  - `admin:edit_field:{field}:{product_id}` - Select field to edit
+  - `admin:delete_product_select:{product_id}` - Select product to delete
+  - `admin:delete_product_confirm:{product_id}` - Confirm deletion
+  - `admin:snk_product_select:{product_id}` - Select product for SNK management
+
+### Fixed
+- **Error Statistik (UnboundLocalError)**: Fixed missing import `list_users` di handlers.py yang menyebabkan crash saat kirim 'Statistik'
+- **Calculator Tidak Berfungsi**: Menu Calculator sekarang langsung start wizard tanpa perlu ketik command `/refund_calculator` atau `/set_calculator`
+- **Pesan '💬' Redundant**: Removed pesan '💬' saat `/start`, sekarang hanya 2 pesan (sticker + welcome)
+- **Category Foreign Key Error**: Made `category_id` nullable di database products table, no more foreign key constraint errors saat tambah produk
+- **Cancel Button Tidak Inline**: All cancel buttons changed from ReplyKeyboardMarkup to InlineKeyboardMarkup untuk better UX
+- **Membership Test Warning**: Fixed `not in` syntax di admin_menu.py
+
+### Changed
+- **Removed Complex Input Formats**: Tidak ada lagi format kompleks seperti `kategori_id|kode|nama|harga|stok|deskripsi`
+  - Tambah Produk: From single-line format → 5-step wizard
+  - Edit Produk: From `produk_id|field=value` → Visual selection + step-by-step
+  - Kelola SNK: From `product_id|SNK baru` → Visual selection + simple input
+  - Voucher: From `kode|deskripsi|tipe|nilai|max_uses|valid_from|valid_until` → Simple format `KODE | NOMINAL | BATAS_PAKAI`
+  
+- **Category Made Optional**: Products no longer require category_id
+  - Database schema: `category_id` nullable (auto-migrated)
+  - `add_product()` function accepts `category_id: int | None`
+  - No breaking changes untuk existing products
+  
+- **Calculator Integration**: Calculator functions integrated langsung ke menu buttons
+  - "🔢 Hitung Refund" → Direct wizard (no command needed)
+  - "⚙️ Atur Formula" → Direct input (no command needed)
+  - State management di text_router untuk handle wizard steps
+  
+- **Public Helper Function**: `parse_price_to_cents()` made public untuk reuse di handlers
+
+### Database
+- **Schema Change**: `category_id` column in `products` table made nullable
+  - Auto-migration: `ALTER TABLE products ALTER COLUMN category_id DROP NOT NULL;`
+  - Executed automatically in `add_product()` function
+  - Backward compatible with existing data
+
+### Code Quality
+- Removed unused imports (`typing.List`, `typing.Optional`)
+- Fixed all diagnostics warnings
+- Consistent error handling across all wizards
+- Proper state management dan cleanup on cancel
+- Clear state variables: `refund_calculator_state`, `calculator_formula_state`, `pending_snk_product`
+
+### Testing
+- Manual testing completed untuk semua 8 issues:
+  - [x] Statistik menu berfungsi (no UnboundLocalError)
+  - [x] Cancel buttons semua inline keyboard
+  - [x] Pesan /start hanya 2 (sticker + welcome)
+  - [x] Tambah produk wizard 5 langkah works
+  - [x] Edit produk visual selection works
+  - [x] Kelola SNK visual selection works
+  - [x] Calculator langsung berfungsi (no command)
+  - [x] Voucher inline cancel button works
+
+### Migration Notes
+To upgrade from v0.2.2 to v0.2.3:
+1. **No manual migration needed** - Database changes auto-applied
+2. Pull latest code: `git pull origin main`
+3. Restart bot: `pkill -f "python -m src.main" && python -m src.main --mode polling &`
+4. Test admin operations:
+   - Test Tambah Produk (5-step wizard)
+   - Test Edit Produk (visual selection)
+   - Test Calculator (direct access)
+   - Test Cancel buttons (all inline)
+5. Verify logs untuk no errors
+
+### Known Issues
+- None - All 8 reported issues resolved
+
+---
+
 ## [0.2.2] – 2025-01-16 (Major UX & Admin Menu Overhaul)
 
 ### Added

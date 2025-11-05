@@ -44,7 +44,8 @@ def _parse_int(value: str, field: str) -> int:
         raise AdminActionError(f"Nilai '{field}' harus berupa angka.") from exc
 
 
-def _parse_price_to_cents(value: str) -> int:
+def parse_price_to_cents(value: str) -> int:
+    """Convert price string to cents. Public function for use in handlers."""
     normalised = value.replace(".", "").replace(",", ".")
     try:
         rupiah = float(normalised)
@@ -53,6 +54,11 @@ def _parse_price_to_cents(value: str) -> int:
             "Harga tidak valid. Gunakan format contoh 15000 atau 15000,50."
         ) from exc
     return int(round(rupiah * 100))
+
+
+def _parse_price_to_cents(value: str) -> int:
+    """Deprecated: Use parse_price_to_cents instead."""
+    return parse_price_to_cents(value)
 
 
 async def handle_add_product_input(
@@ -73,7 +79,7 @@ async def handle_add_product_input(
     category_id = _parse_int(parts[0], "kategori_id")
     code = parts[1]
     name = parts[2]
-    price_cents = _parse_price_to_cents(parts[3])
+    price_cents = parse_price_to_cents(parts[3])
     stock = _parse_int(parts[4], "stok")
     description = parts[5]
 

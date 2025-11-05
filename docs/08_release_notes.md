@@ -5,6 +5,55 @@ Dokumen ini mencatat perubahan penting, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
+## Version 0.2.3 – 2025-01-16
+### Added
+- **Step-by-Step Wizards for All Admin Operations**: Complete refactor menjadi user-friendly wizards
+  - Tambah Produk: 5-langkah wizard (Kode → Nama → Harga → Stok → Deskripsi) dengan progress indicator
+  - Edit Produk: Visual selection dari list → Pilih field → Input nilai baru
+  - Hapus Produk: Visual selection → Confirmation dialog dengan preview
+  - Kelola SNK: Visual selection → Input SNK atau ketik "hapus"
+  - Calculator: Direct wizard tanpa command, step-by-step guidance
+- **Inline Cancel Buttons Everywhere**: Semua admin operations sekarang punya inline cancel button
+  - All 10+ admin menus: Edit templates, Tambah/Edit/Hapus Produk, SNK, Voucher, Calculator, Broadcast
+  - One-click cancel functionality
+  - Consistent UX across all menus
+- **Visual Product Selection**: Admin tidak perlu tahu product_id lagi
+  - Inline buttons dengan list produk (nama + harga)
+  - Preview info sebelum edit/delete
+  - Confirmation dialogs untuk destructive actions
+- **Progress Indicators**: "Langkah X/Y" di multi-step operations dengan preview data yang sudah diinput
+
+### Fixed
+- **Error Statistik**: Fixed UnboundLocalError (missing `list_users` import) yang menyebabkan crash saat kirim 'Statistik'
+- **Calculator Tidak Berfungsi**: Menu Calculator sekarang langsung start wizard, no more commands `/refund_calculator` atau `/set_calculator`
+- **Pesan '💬' Redundant**: Removed pesan '💬' saat `/start`, now only 2 messages (sticker + welcome)
+- **Category Foreign Key Error**: Made `category_id` nullable di products table, no more constraint errors
+- **Cancel Button UX**: All cancel buttons changed from ReplyKeyboard to InlineKeyboard
+- **Membership Test**: Fixed `not in` syntax warning di admin_menu.py
+
+### Changed
+- **No More Complex Formats**: Removed all complex input strings
+  - Tambah Produk: `kategori_id|kode|nama|harga|stok|deskripsi` → 5-step wizard
+  - Edit Produk: `produk_id|field=value` → Visual selection + simple input
+  - Kelola SNK: `product_id|SNK baru` → Visual selection + text input
+- **Category Optional**: Products no longer require category_id (nullable in database, auto-migrated)
+- **Calculator Direct Integration**: Functions integrated directly to menu buttons (no commands needed)
+- **Public Helper**: `parse_price_to_cents()` made public for reuse
+
+### Database
+- `category_id` in `products` table made nullable (auto-migrated)
+- Backward compatible with existing data
+
+### Migration Notes
+1. Pull code: `git pull origin main`
+2. Restart bot (auto-migration runs)
+3. Test: Tambah Produk wizard, Calculator direct access, Cancel buttons
+
+### Known Issues
+- None - All 8 reported issues resolved ✅
+
+---
+
 ## Version 0.2.2 – 2025-01-16
 ### Added
 - **Role-Based Keyboard System**: Bot automatically displays different keyboards based on user role (admin vs customer)

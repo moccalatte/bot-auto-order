@@ -56,39 +56,39 @@ Bot Telegram auto-order untuk toko digital dengan pembayaran terhubung Pakasir. 
 ### Admin Features (Role-Based Access)
 8. **Admin Menu Hierarkis `⚙️ Admin Settings`**
    - **Main Menu** dengan 9 submenu terorganisir menggunakan inline keyboards:
-     - 📝 **Kelola Respon Bot**: 
+     - 📝 **Kelola Respon Bot**:
        - Preview semua template messages (welcome, product, cart, payment, error, success, SNK)
        - Edit template teks dengan placeholder validation (`{nama}`, `{order_id}`, etc.)
        - Upload gambar untuk templates
        - Cancel button pada setiap mode input
-     - 📦 **Kelola Produk**: 
+     - 📦 **Kelola Produk**:
        - CRUD products dengan statistics lengkap
        - HTML formatted product details
-     - 📋 **Kelola Order**: 
+     - 📋 **Kelola Order**:
        - View dan update order status
        - Filtering dan search functionality
-     - 👥 **Kelola User**: 
+     - 👥 **Kelola User**:
        - User statistics dashboard (total, active, blocked)
        - User list dengan pagination
        - Block/unblock functionality dengan confirmation
        - User detail view dengan transaction history
-     - 🎟️ **Kelola Voucher**: 
+     - 🎟️ **Kelola Voucher**:
        - Generate vouchers dengan format user-friendly (nominal/persentase/custom)
        - Input validation dan error messages
        - Cancel button untuk abort creation
-     - 📢 **Broadcast**: 
+     - 📢 **Broadcast**:
        - Send messages (text/photo) ke semua users
        - Real-time statistics (total, success, failed counts)
        - Cancel button untuk abort mid-process
        - Automatic handling untuk users yang block bot
-     - 🧮 **Calculator**: 
+     - 🧮 **Calculator**:
        - User-friendly inline keyboard untuk input nominal
        - Support refund dan deposit calculations
        - Clear visual feedback
-     - 📊 **Statistik**: 
+     - 📊 **Statistik**:
        - Comprehensive dashboard dengan bot metrics
        - HTML formatted statistics
-     - 💰 **Deposit**: 
+     - 💰 **Deposit**:
        - Manage user deposits dengan inline buttons
    - **Role Detection**: Admin IDs dari `TELEGRAM_ADMIN_IDS` otomatis mendapat akses penuh.
    - **Access Control**: Customer users tidak melihat admin menu.
@@ -128,21 +128,21 @@ Bot Telegram auto-order untuk toko digital dengan pembayaran terhubung Pakasir. 
 ## Persyaratan Fungsional
 
 ### Core Functionality
-- **Role-Based Access Control**: 
+- **Role-Based Access Control**:
   - Autentikasi admin via `TELEGRAM_ADMIN_IDS` di konfigurasi
   - Bot otomatis deteksi role dan tampilkan keyboard yang sesuai
   - Admin melihat `⚙️ Admin Settings`, customer tidak
-- **Auto User Tracking**: 
+- **Auto User Tracking**:
   - Setiap `/start` command otomatis menjalankan `upsert_user()`
   - Statistics (total users, transactions) update real-time
   - Database tracking lengkap untuk audit
-- **HTML Parse Mode**: 
+- **HTML Parse Mode**:
   - ALL message templates menggunakan HTML formatting
   - Bold (`<b>`) untuk important info (names, prices, totals, field labels)
   - Italic (`<i>`) untuk disclaimers dan notes
   - Code tags (`<code>`) untuk IDs dan copyable data
   - Consistent emoji usage untuk visual hierarchy
-- **Clean Message Flow**: 
+- **Clean Message Flow**:
   - Tidak ada redundant messages
   - Keyboard langsung attached ke main message
   - Single welcome message dengan keyboard
@@ -198,8 +198,8 @@ Bot Telegram auto-order untuk toko digital dengan pembayaran terhubung Pakasir. 
   - Consistent emoji usage untuk visual hierarchy
   - `parse_mode=ParseMode.HTML` di semua handler functions
 - **Role-Based Keyboard**:
-  - Admin: `⚙️ Admin Settings | 📋 List Produk | 📦 Semua Produk | 📊 Cek Stok | 1️⃣ | 2️⃣ | 3️⃣ | ...`
-  - Customer: `📋 List Produk | 📦 Semua Produk | 📊 Cek Stok | 1️⃣ | 2️⃣ | 3️⃣ | ...`
+  - Admin: `⚙️ Admin Settings | 📋 List Produk | 🛍 Semua Produk | 🏷 Cek Stok | 1️⃣ | 2️⃣ | 3️⃣ | ...`
+  - Customer: `📋 List Produk | 🛍 Semua Produk | 🏷 Cek Stok | 1️⃣ | 2️⃣ | 3️⃣ | ...`
 - **Engagement**: Sticker dikirim saat `/start` sebelum welcome message
 - **Clean Flow**: No redundant messages, keyboard attached langsung
 
@@ -209,7 +209,7 @@ Bot Telegram auto-order untuk toko digital dengan pembayaran terhubung Pakasir. 
   - Simpan log di `logs/telegram-bot/{date}.log`.
   - Enhanced logging untuk admin actions dengan user ID dan action type.
   - Catat metrik ringan (jumlah transaksi, error rate) setiap interval yang wajar.
-- **Audit Log**: 
+- **Audit Log**:
   - Seluruh perubahan konfigurasi admin (customization, backup/restore, dsb)
   - User tracking (upsert operations)
   - Broadcast operations dengan statistics

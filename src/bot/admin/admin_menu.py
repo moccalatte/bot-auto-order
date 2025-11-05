@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from telegram import (
     Update,
@@ -34,8 +34,8 @@ def save_admin_config(user_id: int, config: Dict[str, Any]) -> None:
 def admin_main_menu() -> ReplyKeyboardMarkup:
     """Menu utama admin dengan akses customer + admin features."""
     keyboard = [
-        ["📋 List Produk", "📦 Semua Produk"],
-        ["📊 Cek Stok", "💼 Deposit"],
+        ["📋 List Produk", "🛍 Semua Produk"],
+        ["🏷 Cek Stok", "💰 Deposit"],
         ["⚙️ Admin Settings"],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -157,7 +157,7 @@ def admin_voucher_menu() -> InlineKeyboardMarkup:
 async def handle_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Entry point for admin menu."""
     user = update.effective_user
-    if not user or not str(user.id) in context.bot_data.get("admin_ids", []):
+    if not user or str(user.id) not in context.bot_data.get("admin_ids", []):
         await update.message.reply_text("❌ Kamu tidak punya akses admin.")
         return
 

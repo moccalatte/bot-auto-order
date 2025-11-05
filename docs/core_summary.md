@@ -3,7 +3,7 @@ bot-auto-order/docs/core_summary.md
 
 Dokumen ini adalah ringkasan inti proyek untuk referensi cepat tim, AI builder, reviewer, dan owner. Seluruh isi mencerminkan status, roadmap, dan arsitektur bot auto order Telegram yang terintegrasi dengan Pakasir.
 
-> **Current Version:** 0.2.2 | **Status:** ✅ Production Ready | **Last Updated:** 2025-01-16
+> **Current Version:** 0.2.3 | **Status:** ✅ Production Ready | **Last Updated:** 2025-01-16
 
 ---
 
@@ -28,17 +28,18 @@ Dokumen ini adalah ringkasan inti proyek untuk referensi cepat tim, AI builder, 
 
 ### Admin Features (Role-Based Access)
 - **⚙️ Admin Settings**: Hierarchical menu dengan 9 submenu terorganisir:
-  - 📝 **Kelola Respon Bot**: Preview & edit message templates (welcome, product, cart, payment, error, success, SNK)
-  - 📦 **Kelola Produk**: CRUD products dengan statistics lengkap
+  - 📝 **Kelola Respon Bot**: Preview & edit message templates dengan **inline cancel buttons**
+  - 📦 **Kelola Produk**: **Step-by-step wizard** untuk tambah (5 langkah: kode→nama→harga→stok→deskripsi), visual selection untuk edit/hapus, **no category required**
   - 📋 **Kelola Order**: View & update order status dengan filtering
-  - 👥 **Kelola User**: Statistics dashboard, pagination, block/unblock functionality
-  - 🎟️ **Kelola Voucher**: Generate vouchers (nominal/persentase/custom) dengan validasi
-  - 📢 **Broadcast**: Send messages (text/photo) ke all users dengan real-time stats
-  - 🧮 **Calculator**: User-friendly inline keyboard untuk refund/deposit calculations
-  - 📊 **Statistik**: Comprehensive dashboard dengan bot metrics
+  - 👥 **Kelola User**: Statistics dashboard (fixed: no UnboundLocalError), pagination, block/unblock functionality
+  - 🎟️ **Kelola Voucher**: Generate vouchers dengan format sederhana dan **inline cancel button**
+  - 📢 **Broadcast**: Send messages (text/photo) dengan real-time stats dan **inline cancel button**
+  - 🧮 **Calculator**: **Direct wizard** (no commands), Hitung Refund & Atur Formula dengan **inline cancel buttons**
+  - 📊 **Statistik**: Comprehensive dashboard (fixed: import list_users)
   - 💰 **Deposit**: Manage user deposits dengan inline buttons
-- **Cancel Buttons**: Semua critical operations dapat dibatalkan
-- **Real-Time Feedback**: Live statistics untuk broadcast dan operations
+- **Inline Cancel Buttons Everywhere**: SEMUA admin operations sekarang punya inline cancel button (bukan text)
+- **Real-Time Feedback**: Live statistics dengan progress indicators di multi-step operations
+- **Visual Selection**: Pilih produk dari list untuk edit/hapus/SNK (no need to know product_id)
 
 ### System Features
 - **Role-Based Keyboard**: Admin melihat admin keyboard, customer melihat customer keyboard
@@ -59,10 +60,10 @@ Dokumen ini adalah ringkasan inti proyek untuk referensi cepat tim, AI builder, 
 | src/bot/handlers.py  | Handler Telegram utama (start, product, cart, payment) | ✅ Stable | 0.2.2 |
 | src/bot/admin/       | Menu & fitur admin/seller lengkap   | ✅ Stable   | 0.2.2 |
 | src/bot/admin/response.py | Template management & preview  | ✅ Stable   | 0.2.2 |
-| src/bot/admin/user.py | User management dengan pagination  | ✅ Stable   | 0.2.2 |
-| src/bot/admin/broadcast.py | Broadcast dengan real-time stats | ✅ Stable | 0.2.2 |
-| src/bot/admin/calculator.py | Inline keyboard calculator     | ✅ Stable   | 0.2.2 |
-| src/bot/admin/voucher.py | Voucher generation simplified     | ✅ Stable   | 0.2.2 |
+| src/bot/admin/user.py | User management dengan pagination  | ✅ Stable   | 0.2.3 |
+| src/bot/admin/broadcast.py | Broadcast dengan real-time stats | ✅ Stable | 0.2.3 |
+| src/bot/admin/calculator.py | Direct integration (no commands) | ✅ Stable   | 0.2.3 |
+| src/bot/admin/voucher.py | Voucher generation dengan inline cancel | ✅ Stable | 0.2.3 |
 | src/bot/messages.py  | Message templates dengan HTML formatting | ✅ Stable | 0.2.2 |
 | src/core/config.py   | Config & env management (fixed validators) | ✅ Stable | 0.2.2 |
 | src/core/custom_config.py | Template pesan & backup/restore | ✅ Stable | 0.2.1 |
@@ -108,35 +109,39 @@ Dokumen ini adalah ringkasan inti proyek untuk referensi cepat tim, AI builder, 
 - [x] ✅ HTML parse mode migration (v0.2.2)
 - [x] ✅ JobQueue implementation untuk scheduled tasks (v0.2.2)
 - [x] ✅ Complete admin menu restructure (v0.2.2)
+- [x] ✅ Admin UX overhaul dengan step-by-step wizards (v0.2.3)
+- [x] ✅ Inline cancel buttons di semua admin menus (v0.2.3)
 - [ ] 📋 QA & comprehensive unit test suite
 - [ ] 📋 Multi-language support
 - [x] ✅ Release & maintenance plan (v0.2.2)
 
-**Current Status**: Production Ready - All core features implemented and tested
+**Current Status**: Production Ready - All core features implemented and tested, Admin UX significantly improved
 
 ---
 
 ## 6. Catatan Kualitas & Audit
 
-### Quality Status (v0.2.2)
-- **QA Status**: All core features (order, payment, admin tools, SNK, broadcast) fully implemented dan stable
-- **Code Quality**: 
+### Quality Status (v0.2.3)
+- **QA Status**: All core features (order, payment, admin tools, SNK, broadcast) fully implemented dan stable, Admin UX completely overhauled
+- **Code Quality**:
   - ✅ No bare exceptions (all use specific exception types)
   - ✅ No SQL injection vulnerabilities
   - ✅ Proper input validation dan sanitization
   - ✅ Comprehensive error handling dengan informative messages
   - ✅ Consistent code style across all files
-- **Security Audit**: 
+- **Security Audit**:
   - ✅ Input validation untuk all admin functions
   - ✅ Role-based access control implemented
   - ✅ Credentials stored securely di `.env`
   - ✅ Audit log active untuk all critical operations
   - ✅ Data encryption untuk SNK storage
-- **Testing Coverage**: 
+  - ✅ Step-by-step wizards untuk complex operations (v0.2.3)
+  - ✅ Inline cancel buttons di semua admin menus (v0.2.3)
+- **Testing Coverage**:
   - ✅ Manual testing complete untuk all features
   - 📋 Automated unit tests planned
   - ✅ Integration testing dengan Pakasir API
-- **Risiko Utama**: 
+- **Risiko Utama**:
   - API eksternal down (handled dengan fallback messages)
   - Backup gagal (monitoring dengan alerts)
   - Abuse/spam (active protection dengan rate limiting)
@@ -147,7 +152,7 @@ Dokumen ini adalah ringkasan inti proyek untuk referensi cepat tim, AI builder, 
 
 ## 7. Log & Output Nyata
 
-### Contoh Log Eksekusi (v0.2.2):
+### Contoh Log Eksekusi (v0.2.3):
 ```
 [2025-01-16 10:00:00] [INFO] Bot initialization successful with JobQueue enabled
 [2025-01-16 10:00:01] [INFO] User 5473468582 started bot - role: admin
@@ -161,14 +166,15 @@ Dokumen ini adalah ringkasan inti proyek untuk referensi cepat tim, AI builder, 
 
 ### Contoh Output Fitur Utama (HTML Formatted):
 ```
-Welcome Message (Admin):
+Welcome Message (Only 2 messages - Sticker + Welcome):
 🌟 Halo, <b>Admin User</b>! Selamat datang di <b>Bot Auto Order</b>.
 
 📊 Statistik Bot:
 🙍🏻‍♂️ Total Pengguna Bot: <b>156 orang</b>
 💼 Transaksi Tuntas: <b>89x</b>
 
-[Keyboard: ⚙️ Admin Settings | 📋 List Produk | 📦 Semua Produk | ...]
+[Keyboard attached: ⚙️ Admin Settings | 📋 List Produk | 📦 Semua Produk | ...]
+[No '💬' message - REMOVED in v0.2.3]
 
 Admin Menu:
 ⚙️ <b>Admin Settings</b>
@@ -184,11 +190,21 @@ Pilih menu admin:
 📊 Statistik
 💰 Deposit
 
-Product Detail:
-📦 <b>Nama:</b> Premium Product
-💰 <b>Harga:</b> Rp 50.000
-📊 <b>Stok:</b> 25 pcs
-🏷️ <b>Kategori:</b> Digital
+Tambah Produk (Step-by-Step Wizard):
+➕ <b>Tambah Produk Baru</b>
+
+Langkah 1/5: Kirim <b>kode produk</b> (contoh: NETFLIX1M)
+[Inline Button: ❌ Batal]
+
+... (user inputs through 5 steps)
+
+✅ <b>Produk berhasil ditambahkan!</b>
+🆔 ID: <code>42</code>
+📦 Kode: <code>NETFLIX1M</code>
+📝 Nama: <b>Netflix Premium 1 Bulan</b>
+💰 Harga: <b>Rp 50.000</b>
+📊 Stok: <b>100</b> pcs
+[No category required - made optional in v0.2.3]
 
 Broadcast Stats:
 📢 <b>Broadcast Status</b>
@@ -218,15 +234,18 @@ Broadcast Stats:
 
 ## 9. Catatan & Next Steps
 
-### ✅ Completed (v0.2.2)
+### ✅ Completed (v0.2.3)
 - ✅ Admin tools fully implemented (CRUD, broadcast, user management, voucher, calculator)
+- ✅ **Admin UX completely overhauled** dengan step-by-step wizards (v0.2.3)
+- ✅ **Inline cancel buttons di SEMUA admin menus** (v0.2.3)
 - ✅ SNK handler & submission complete
 - ✅ Health-check & alert ke owner bot
 - ✅ Role-based access control & keyboard
 - ✅ HTML parse mode migration
 - ✅ JobQueue implementation
-- ✅ Clean message flow & UX improvements
+- ✅ Clean message flow (removed '💬' message - v0.2.3)
 - ✅ Comprehensive documentation update
+- ✅ Fixed: Statistik error, Calculator tidak berfungsi, Category FK error (v0.2.3)
 
 ### 📋 Planned Enhancements
 - **Automated Testing**: Implement comprehensive unit test suite dengan pytest

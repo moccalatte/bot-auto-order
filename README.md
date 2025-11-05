@@ -2,7 +2,7 @@
 
 Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui Pakasir, serta fitur kustomisasi menu dan respon bot oleh admin langsung dari Telegram.
 
-> **Status:** ✅ Production Ready | **Version:** 0.2.2 | **Last Updated:** 2025-01-16
+> **Status:** ✅ Production Ready | **Version:** 0.2.3 | **Last Updated:** 2025-01-16
 
 ## Struktur Proyek
 - `src/`
@@ -21,14 +21,14 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
 
 ## Fitur Utama
 - **Menu Admin Telegram dengan Hierarki**: Admin dapat mengakses menu khusus `⚙️ Admin Settings` dengan submenu terstruktur:
-  - **Kelola Respon Bot**: Preview template pesan (welcome, product, cart, payment, error) dengan placeholder, edit teks/gambar, dan cancel button untuk mode input
-  - **Kelola Produk**: CRUD produk dengan statistik lengkap
+  - **Kelola Respon Bot**: Preview template pesan (welcome, product, cart, payment, error) dengan placeholder, edit teks/gambar, dan **inline cancel button** di setiap mode input
+  - **Kelola Produk**: CRUD produk dengan **wizard step-by-step** (5 langkah ramah awam), tanpa kategori, pilih produk dari list untuk edit/hapus
   - **Kelola Order**: Lihat dan update status order
   - **Kelola User**: Lihat user statistics, blokir/unblokir user, dengan tombol navigasi
-  - **Kelola Voucher**: Generate voucher dengan format user-friendly (nominal, persentase, atau teks custom) dan tombol cancel
-  - **Broadcast**: Kirim pesan ke semua user dengan statistik (total, success, failed) dan tombol cancel
-  - **Calculator**: User-friendly calculator untuk refund/deposit dengan inline keyboard
-  - **Statistik**: Dashboard lengkap dengan metrik bot
+  - **Kelola Voucher**: Generate voucher dengan format user-friendly (nominal, persentase, atau teks custom) dan **inline cancel button**
+  - **Broadcast**: Kirim pesan ke semua user dengan statistik (total, success, failed) dan **inline cancel button**
+  - **Calculator**: User-friendly calculator untuk refund/deposit yang **langsung berfungsi** (no command), dengan **inline cancel button**
+  - **Statistik**: Dashboard lengkap dengan metrik bot (fixed: no more UnboundLocalError)
   - **Deposit**: Kelola deposit user dengan inline buttons
 - **Role-Based Keyboard**: Bot menampilkan keyboard yang berbeda berdasarkan role user:
   - Admin: Melihat tombol `⚙️ Admin Settings` untuk akses penuh
@@ -210,7 +210,50 @@ OWNER_ALERT_THRESHOLD=ERROR
 - Gunakan `python -m src.tools.backup_manager create --offsite` untuk membuat backup terenkripsi, dan `restore` untuk pemulihan. Jalankan `docker compose up -d` setelah restore.
 - Catat setiap drill di `logs/maintenance/` untuk audit owner.
 
-## Recent Fixes & Improvements (v0.2.2 - Latest)
+## Recent Fixes & Improvements (v0.2.3 - Latest)
+
+### ✅ Complete Admin UX Overhaul (v0.2.3)
+
+**Major UX Improvements:**
+- **Step-by-Step Wizards**: Semua admin operations sekarang menggunakan wizard ramah awam
+  - Tambah Produk: 5 langkah dengan progress indicator (Kode → Nama → Harga → Stok → Deskripsi)
+  - Edit Produk: Pilih dari list → Pilih field → Input nilai baru
+  - Kelola SNK: Pilih dari list → Input SNK atau ketik "hapus"
+  - Calculator: Direct input tanpa command, step-by-step guidance
+  
+- **Inline Cancel Buttons Everywhere**: Semua input modes sekarang punya inline cancel button (bukan text button)
+  - Kelola Respon Bot: ✅ Inline cancel
+  - Tambah/Edit/Hapus Produk: ✅ Inline cancel di setiap step
+  - Kelola SNK: ✅ Inline cancel
+  - Generate Voucher: ✅ Inline cancel
+  - Calculator (Hitung & Atur Formula): ✅ Inline cancel
+  - Broadcast: ✅ Inline cancel
+  
+- **No More Complex Formats**: Hapus format kompleks seperti `kategori_id|kode|nama|harga|stok|deskripsi`
+  - Sekarang: Input step-by-step dengan guidance jelas
+  - Progress indicator: "Langkah 1/5", "Langkah 2/5", dst
+  - Preview data yang sudah diinput di setiap step
+  
+- **Visual Selection**: Admin tidak perlu tahu ID produk
+  - Pilih produk dari list dengan inline buttons
+  - Preview info produk sebelum edit/delete
+  - Confirmation dialog untuk destructive actions
+  
+- **Clean Welcome Flow**: Hanya 2 pesan saat `/start` (sticker + welcome)
+  - Removed: Pesan '💬' yang redundant
+  - Reply keyboard attached langsung ke welcome message
+
+**Bug Fixes:**
+- Fixed: UnboundLocalError saat kirim 'Statistik' (missing import `list_users`)
+- Fixed: Calculator tidak berfungsi (command `/refund_calculator` dan `/set_calculator` tidak ada response)
+- Fixed: Category foreign key error saat tambah produk (category_id sekarang optional)
+- Fixed: Membership test warning di admin_menu.py
+
+**Database Changes:**
+- `category_id` di tabel `products` sekarang nullable (auto-migrated)
+- No breaking changes untuk existing data
+
+### ✅ Previous Improvements (v0.2.2)
 
 ### ✅ Configuration & Validation
 - Fixed `TELEGRAM_ADMIN_IDS` and `TELEGRAM_OWNER_IDS` validator to handle single integer values and comma-separated strings
@@ -310,18 +353,22 @@ For detailed fix history and implementation details, see `docs/fixing_plan.md` a
   - [ ] Install/upgrade dependencies: `pip install -r requirements.txt`
   - [ ] Verify JobQueue available: `python -c "from telegram.ext import JobQueue; print('✅ JobQueue available!')"`
   - [ ] Check config validators: Ensure `TELEGRAM_ADMIN_IDS` and `TELEGRAM_OWNER_IDS` format correct
-- **User Experience Testing**:
-  - [ ] Test `/start` sebagai admin: Verify sticker, welcome message, statistics, dan admin keyboard (`⚙️ Admin Settings`) tampil
+- [ ] **User Experience Testing**:
+  - [ ] Test `/start` sebagai admin: Verify ONLY 2 messages (sticker + welcome), no '💬' message
   - [ ] Test `/start` sebagai customer: Verify customer keyboard tampil tanpa admin access
-  - [ ] Test user statistics: Verify count increments dengan setiap `/start` baru
+  - [ ] Test statistik menu: No UnboundLocalError, data displayed correctly
   - [ ] Test role-based keyboard: Admin vs customer views berbeda
-- **Admin Menu Testing**:
-  - [ ] Enter `⚙️ Admin Settings`: Verify semua 9 submenu tampil (Kelola Respon Bot, Produk, Order, User, Voucher, Broadcast, Calculator, Statistik, Deposit)
-  - [ ] **Kelola Respon Bot**: Test preview templates, edit text, upload image, cancel button
-  - [ ] **Kelola User**: Test user statistics, list pagination, block/unblock functionality
-  - [ ] **Broadcast**: Test send message (text & photo), verify statistics, test cancel button
-  - [ ] **Calculator**: Test inline keyboard input, refund calculation
-  - [ ] **Kelola Voucher**: Test voucher generation dengan format baru, test cancel button
+- [ ] **Admin Menu Testing**:
+  - [ ] Enter `⚙️ Admin Settings`: Verify semua 9 submenu tampil
+  - [ ] **Kelola Respon Bot**: Test preview templates, edit text, **verify inline cancel button**
+  - [ ] **Tambah Produk**: Test 5-step wizard (kode→nama→harga→stok→deskripsi), **verify inline cancel at each step**
+  - [ ] **Edit Produk**: Select from list → Select field → Input value, **verify inline cancel**
+  - [ ] **Hapus Produk**: Select from list → Confirm deletion, **verify inline cancel**
+  - [ ] **Kelola SNK**: Select from list → Input SNK or type "hapus", **verify inline cancel**
+  - [ ] **Kelola User**: Test user statistics (no UnboundLocalError), list pagination, block/unblock
+  - [ ] **Broadcast**: Test send message, verify statistics, **verify inline cancel button**
+  - [ ] **Calculator**: Test "Hitung Refund" (direct, no command), test "Atur Formula", **verify inline cancel**
+  - [ ] **Kelola Voucher**: Test voucher generation, **verify inline cancel button**
 - **Message Formatting**:
   - [ ] Verify all messages use HTML parse mode
   - [ ] Check bold formatting pada important info (names, prices, totals)
@@ -397,10 +444,26 @@ python -c "from telegram.ext import JobQueue; print('✅ JobQueue available!')"
 3. Restart bot after changing `.env`
 4. Test dengan `/start` sebagai admin user
 
-### User Statistics Not Counting
-- Statistics sudah otomatis update di v0.2.2+
-- Setiap `/start` menjalankan `upsert_user()` yang menambah/update user count
-- Check database connection jika statistics tidak update
+### Error Statistik (UnboundLocalError)
+- Fixed in v0.2.3: `list_users` sekarang properly imported
+- Statistik menu berfungsi dengan baik
+- No more UnboundLocalError saat kirim 'Statistik'
+
+### Calculator Tidak Berfungsi
+- Fixed in v0.2.3: Calculator langsung berfungsi dari menu (no command needed)
+- "🔢 Hitung Refund" → Direct wizard (no `/refund_calculator` command)
+- "⚙️ Atur Formula" → Direct input (no `/set_calculator` command)
+- Semua dengan inline cancel button
+
+### Tambah Produk Error (Foreign Key)
+- Fixed in v0.2.3: `category_id` sekarang optional (nullable)
+- No more foreign key constraint error
+- Wizard step-by-step 5 langkah (tidak perlu kategori)
+
+### Cancel Button Tidak Berfungsi
+- Fixed in v0.2.3: Semua cancel button sekarang inline keyboard
+- No more "Aksi admin tidak dikenali" saat cancel
+- Konsisten di semua menu admin
 
 ## Lisensi
 Internal use only.
