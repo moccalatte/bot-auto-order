@@ -34,13 +34,12 @@ def save_admin_config(user_id: int, config: Dict[str, Any]) -> None:
 def admin_main_menu() -> ReplyKeyboardMarkup:
     """Menu utama admin: ⚙️ Admin Settings (hanya untuk admin)."""
     keyboard = [
-        ["🛠 Kelola Respon Bot"],
-        ["🛒 Kelola Produk"],
-        ["📦 Kelola Order"],
-        ["👥 Kelola User"],
-        ["🎟️ Kelola Voucher"],
-        ["📣 Broadcast Pesan"],
-        ["⬅️ Kembali ke Menu Utama"],
+        ["📋 List Produk", "📦 Semua Produk"],
+        ["📊 Cek Stok", "💼 Deposit"],
+        ["🛠 Kelola Respon Bot", "🛒 Kelola Produk"],
+        ["📦 Kelola Order", "👥 Kelola User"],
+        ["🎟️ Kelola Voucher", "📣 Broadcast Pesan"],
+        ["🧮 Calculator"],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 

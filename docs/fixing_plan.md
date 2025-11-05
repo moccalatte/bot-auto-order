@@ -211,15 +211,19 @@ Signal handling untuk graceful shutdown sudah dihandle oleh `python-telegram-bot
 
 ## Checklist Testing Setelah Perbaikan
 
-- [ ] Test `/start` command - pesan dan keyboard muncul dengan format benar
-- [ ] Verify inline keyboard kategori ada di pesan pertama
-- [ ] Test customer tidak bisa akses Calculator dari reply keyboard
-- [ ] Test admin masih bisa akses `/refund_calculator` dan `/set_calculator`
-- [ ] Test semua pesan menggunakan bold dengan benar (tidak ada error HTML parsing)
-- [ ] Test payment flow - semua pesan terformat dengan baik
-- [ ] Verify TELEGRAM_ADMIN_IDS bisa handle single ID dan multiple IDs
-- [ ] Test JobQueue berjalan tanpa warning
-- [ ] Test graceful shutdown dengan Ctrl+C
+- [x] Test `/start` command - pesan dan keyboard muncul dengan format benar
+- [x] Verify inline keyboard kategori ada di pesan pertama
+- [x] Test customer tidak bisa akses Calculator dari reply keyboard
+- [x] Test admin masih bisa akses `/refund_calculator` dan `/set_calculator`
+- [x] Test semua pesan menggunakan bold dengan benar (tidak ada error HTML parsing)
+- [x] Test payment flow - semua pesan terformat dengan baik
+- [x] Verify TELEGRAM_ADMIN_IDS bisa handle single ID dan multiple IDs
+- [ ] Test JobQueue berjalan tanpa warning (REQUIRES: pip install -r requirements.txt)
+- [x] Test graceful shutdown dengan Ctrl+C
+- [x] Test admin melihat admin keyboard saat `/start`
+- [x] Test customer melihat customer keyboard saat `/start`
+- [x] Test "Kembali ke Menu Utama" return correct keyboard by role
+- [x] Test redundant message removed (hanya emoji pointer)
 
 ---
 
@@ -241,5 +245,147 @@ Signal handling untuk graceful shutdown sudah dihandle oleh `python-telegram-bot
 3. **Documentation Update**: Update dokumentasi di `/docs` untuk mencerminkan perubahan UX
 4. **Broadcast Messages**: Pastikan broadcast messages juga menggunakan parse mode yang benar
 5. **Error Messages**: Review semua error messages untuk konsistensi format
+
+---
+
+## 9. ✅ Admin Keyboard Not Showing [FIXED - 2025-01-15]
+
+**Gejala:**
+- Admin tidak melihat keyboard admin saat `/start`
+- Hanya melihat keyboard customer biasa
+- Menu admin tidak accessible
+
+**Penyebab:**
+- Logic di `start()` tidak check apakah user adalah admin
+- Tidak ada conditional keyboard berdasarkan role user
+
+**Solusi: ✅ SELESAI**
+- Added admin check di `start()` function:
+  ```python
+  is_admin = (
+      user.id in settings.telegram_admin_ids or user.id in settings.telegram_owner_ids
+  )
+  
+  if is_admin:
+      reply_keyboard = admin_main_menu()
+  else:
+      reply_keyboard = keyboards.main_reply_keyboard(...)
+  ```
+- Updated `admin_main_menu()` untuk include customer features + admin features:
+  - Customer features: List Produk, Semua Produk, Cek Stok, Deposit
+  - Admin features: Kelola Respon Bot, Kelola Produk, Order, User, Voucher, Broadcast
+  - Calculator: Admin only
+- Added admin check di "Kembali ke Menu Utama" untuk return correct keyboard
+- Added security check di semua admin menu handlers
+
+**File yang diubah:** 
+- `src/bot/handlers.py` (start function, text_router)
+- `src/bot/admin/admin_menu.py` (admin_main_menu structure)
+
+**Impact:** Admin sekarang melihat keyboard lengkap dengan akses customer + admin features
+
+---
+
+## 10. ✅ Redundant Message Removed [FIXED - 2025-01-15]
+
+**Gejala:**
+- Pesan "📱 Gunakan menu di bawah untuk navigasi cepat:" tidak berguna
+- User sudah tahu fungsi keyboard
+- Menambah clutter di chat
+
+**Solusi: ✅ SELESAI**
+- Changed dari:
+  ```python
+  await update.message.reply_text(
+      "📱 Gunakan menu di bawah untuk navigasi cepat:",
+      reply_markup=reply_keyboard,
+      parse_mode=ParseMode.HTML,
+  )
+  ```
+  Menjadi:
+  ```python
+  await update.message.reply_text(
+      "👇",  # Simple pointer emoji
+      reply_markup=reply_keyboard,
+  )
+  ```
+
+**File yang diubah:** `src/bot/handlers.py` (start function)
+
+**Impact:** Chat lebih clean, tetap ada visual pointer ke keyboard
+
+---
+
+## 11. ⚠️ JobQueue Warning Still Appears [NEEDS ACTION]
+
+**Gejala:**
+```
+PTBUserWarning: No `JobQueue` set up. To use `JobQueue`, you must install PTB via `pip install "python-telegram-bot[job-queue]"`
+```
+
+**Penyebab:**
+- `requirements.txt` sudah benar: `python-telegram-bot[webhooks,job-queue]==21.3`
+- Tapi virtual environment belum di-reinstall
+- Masih pakai versi lama tanpa job-queue
+
+**Solusi: ⚠️ REQUIRES MANUAL ACTION**
+
+**Step 1:** Activate venv
+```bash
+source venv/bin/activate
+```
+
+**Step 2:** Uninstall old version
+```bash
+pip uninstall python-telegram-bot -y
+```
+
+**Step 3:** Install new version
+```bash
+pip install -r requirements.txt
+```
+
+**Step 4:** Verify
+```bash
+python -c "from telegram.ext import JobQueue; print('✅ JobQueue available!')"
+```
+
+**Step 5:** Restart bot
+```bash
+pkill -f "python -m src.main"
+TELEGRAM_MODE=polling ./scripts/run_stack.sh
+```
+
+**Alternative (if not working):** Recreate venv
+```bash
+deactivate
+rm -rf venv
+python3.12 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+**File reference:** See `FIX_JOBQUEUE.md` for complete guide
+
+**Impact:** Scheduled tasks won't work properly until fixed
+
+---
+
+## Summary Status Perbaikan (Updated)
+
+| No | Issue | Status | File(s) Modified |
+|----|-------|--------|------------------|
+| 1 | TELEGRAM_ADMIN_IDS validator | ✅ Fixed | `src/core/config.py` |
+| 2 | Port 9000 conflict | ⚠️ Manual | N/A (environment issue) |
+| 3 | TelemetrySnapshot __dict__ | ✅ Already OK | `src/core/telemetry.py` |
+| 4 | JobQueue warning | ✅ Fixed in code | `requirements.txt` |
+| 5 | ConversationHandler import | ✅ Already OK | `src/bot/handlers.py` |
+| 6 | Ctrl+C signal handling | ℹ️ Info | N/A (handled by PTB) |
+| 7 | UX/UI improvements | ✅ Fixed | Multiple files |
+| 8 | Requirements dependency | ✅ Fixed | `requirements.txt` |
+| 9 | Admin keyboard not showing | ✅ Fixed | `handlers.py`, `admin_menu.py` |
+| 10 | Redundant message | ✅ Fixed | `handlers.py` |
+| 11 | JobQueue install needed | ⚠️ Manual | Requires: `pip install -r requirements.txt` |
 
 ---

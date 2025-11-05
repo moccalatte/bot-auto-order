@@ -133,7 +133,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         total_transactions=stats["total_transactions"],
     )
 
-    reply_keyboard = keyboards.main_reply_keyboard(range(1, min(len(products), 6)))
+    # Check if user is admin
+    is_admin = (
+        user.id in settings.telegram_admin_ids or user.id in settings.telegram_owner_ids
+    )
+
+    # Use admin keyboard for admins, regular keyboard for customers
+    from src.bot.admin.admin_menu import admin_main_menu
+
+    if is_admin:
+        reply_keyboard = admin_main_menu()
+    else:
+        reply_keyboard = keyboards.main_reply_keyboard(range(1, min(len(products), 6)))
 
     # Gabungkan welcome text dengan inline keyboard kategori dalam satu pesan
     combined_text = f"{welcome_text}\n\n🪄 <b>Pilih kategori favoritmu ya!</b>"
@@ -144,11 +155,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         parse_mode=ParseMode.HTML,
     )
 
-    # Kirim reply keyboard di pesan terpisah tanpa text
+    # Kirim reply keyboard (admin atau customer) tanpa pesan redundant
     await update.message.reply_text(
-        "📱 Gunakan menu di bawah untuk navigasi cepat:",
+        "👇",  # Simple pointer emoji instead of redundant text
         reply_markup=reply_keyboard,
-        parse_mode=ParseMode.HTML,
     )
 
 
@@ -722,20 +732,11 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     )
             return
 
-    # Hapus akses menu produk lama dari admin, hanya gunakan menu settings baru
-    if text == "⚙️ Admin Settings":
+    # Admin menu handlers (admin keyboard shows on /start)
+    if text == "🛠 Kelola Respon Bot":
         if not is_admin:
             await update.message.reply_text("❌ Kamu tidak punya akses admin.")
             return
-        from src.bot.admin.admin_menu import admin_main_menu
-
-        await update.message.reply_text(
-            "⚙️ Admin Settings:\nSilakan pilih aksi di bawah.",
-            reply_markup=admin_main_menu(),
-        )
-        return
-    # Submenu admin settings
-    if text == "🛠 Kelola Respon Bot":
         from src.bot.admin.admin_menu import admin_response_menu
 
         await update.message.reply_text(
@@ -743,6 +744,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
     if text == "🛒 Kelola Produk":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
         from src.bot.admin.admin_menu import admin_product_menu
 
         await update.message.reply_text(
@@ -750,6 +754,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
     if text == "📦 Kelola Order":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
         from src.bot.admin.admin_menu import admin_order_menu
 
         await update.message.reply_text(
@@ -757,6 +764,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
     if text == "👥 Kelola User":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
         from src.bot.admin.admin_menu import admin_user_menu
 
         await update.message.reply_text(
@@ -771,23 +781,28 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             reply_markup=admin_voucher_menu(),
         )
         return
-    if text == "⬅️ Kembali ke Admin Settings":
-        if not is_admin:
-            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
-            return
-        from src.bot.admin.admin_menu import admin_main_menu
-
-        await update.message.reply_text(
-            "⚙️ Admin Settings:\nSilakan pilih aksi di bawah.",
-            reply_markup=admin_main_menu(),
-        )
-        return
     if text == "⬅️ Kembali ke Menu Utama":
         products: Sequence[Product] = context.user_data.get("product_list", [])
         if not products:
             products = await list_products()
         context.user_data["product_list"] = products
-        reply_keyboard = keyboards.main_reply_keyboard(range(1, min(len(products), 6)))
+
+        # Check if user is admin to show appropriate keyboard
+        settings = get_settings()
+        is_admin_user = user and (
+            user.id in settings.telegram_admin_ids
+            or user.id in settings.telegram_owner_ids
+        )
+
+        if is_admin_user:
+            from src.bot.admin.admin_menu import admin_main_menu
+
+            reply_keyboard = admin_main_menu()
+        else:
+            reply_keyboard = keyboards.main_reply_keyboard(
+                range(1, min(len(products), 6))
+            )
+
         await update.message.reply_text(
             "🏠 Kembali ke menu utama.", reply_markup=reply_keyboard
         )
@@ -849,8 +864,11 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    # Handler untuk tombol Calculator
+    # Handler untuk tombol Calculator (admin only)
     if text == "🧮 Calculator":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
         # Kirim rumus refund dari calcu.md
         try:
             with open("calcu.md", "r") as f:
