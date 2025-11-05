@@ -1,6 +1,8 @@
 __pycache__/
 *.log
 .env
+bot.env
+/deployments/
 /venv/
 /logs/*
 !/logs/.gitkeep

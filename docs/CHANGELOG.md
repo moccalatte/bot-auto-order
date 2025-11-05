@@ -5,7 +5,26 @@ Dokumen ini mencatat riwayat perubahan, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
-## [0.2.0] – 2025-06-01
+## [0.2.1] – 2025-11-05
+### Added
+- Mode `auto` untuk failover polling/webhook (`src/main.py`, `scripts/run_stack.sh`) beserta panduan switch DNS/Reverse Proxy.
+- CLI `src/tools/healthcheck.py` untuk pengecekan Telegram API, Postgres, dan disk dengan alert ke owner.
+- Dockerfile + template Compose untuk multi-tenant deployment dengan restart policy.
+- Enkripsi SNK + purge otomatis (`DATA_ENCRYPTION_KEY`, `SNK_RETENTION_DAYS`) dan backup manager terenkripsi.
+- Broadcast queue persisten dengan dispatcher terjadwal dan audit log.
+### Changed
+- Pengiriman SNK memakai PostgreSQL advisory lock (`src/services/locks.py`) agar aman pada multi-instance.
+- README diperbarui dengan instruksi failover, health-check, dan Docker.
+- Health-check menambah CPU/RAM/log usage; PaymentService mengirim alert saat kegagalan beruntun, OwnerAlertHandler menyalurkan log level tinggi.
+- Docker image kini menggunakan multi-stage build (lebih ringan) dan disertai skrip `cron_healthcheck.sh`/`cron_backup.sh` untuk automasi tenant.
+- Skrip `provision_tenant.py` mempermudah pembuatan struktur `deployments/bot-<store>-<gateway>` secara otomatis.
+- Scheduler internal menjalankan health-check & backup otomatis berdasarkan env (`ENABLE_AUTO_HEALTHCHECK`, `HEALTHCHECK_INTERVAL_MINUTES`, `ENABLE_AUTO_BACKUP`, `BACKUP_TIME`).
+### Known Issues
+- Jalankan health-check di environment yang sudah menginstal dependency (`pip install -r requirements.txt`) dan memiliki koneksi Postgres.
+
+---
+
+## [0.2.0] – 2025-11-01
 ### Added
 - Health check & alert ke bot owner khusus notifikasi (token di env, info bot_store_name)
 - Backup otomatis & offsite, monitoring integritas backup, SOP restore
@@ -30,7 +49,7 @@ Dokumen ini mencatat riwayat perubahan, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
-## [0.1.0] – 2025-05-01
+## [0.1.0] – 2025-11-01
 ### Added
 - Inisialisasi struktur starterkit di folder `docs/`
 - PRD, dev_protocol, dan context project bot auto order Telegram

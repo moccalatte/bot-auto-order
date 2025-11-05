@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
+from src.core.encryption import encrypt_text
 from src.services.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,7 @@ async def record_terms_submission(
             order_id,
             product_id,
             telegram_user_id,
-            message,
+            encrypt_text(message) if message else None,
             media_file_id,
             media_type,
         )
@@ -276,3 +277,22 @@ async def get_notification(notification_id: int) -> Optional[Dict[str, Any]]:
             notification_id,
         )
     return dict(row) if row else None
+
+
+async def purge_old_submissions(retention_days: int) -> int:
+    """Hapus submission SNK yang melampaui retention."""
+
+    await _ensure_tables()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            DELETE FROM product_term_submissions
+            WHERE created_at < NOW() - ($1::TEXT || ' days')::INTERVAL;
+            """,
+            retention_days,
+        )
+    try:
+        return int(result.split(" ")[1])
+    except Exception:  # pragma: no cover - defensive
+        return 0

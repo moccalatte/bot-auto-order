@@ -8,23 +8,28 @@ Dokumen ini memuat panduan lengkap perawatan, backup, monitoring, dan update unt
 ## 1. Backup
 
 ### Jadwal & Lokasi
-- **Database**: Backup otomatis harian ke folder `/backup/db/` dan offsite (cloud/remote server).
-- **Konfigurasi & .env**: Backup mingguan ke `/backup/config/` dan offsite.
-- **Log**: Backup mingguan ke `/backup/logs/` dan rotasi otomatis.
+- **Default lokal**: `BACKUP_LOCAL_DIR` (default `backups/local/`).
+- **Offsite**: mount storage eksternal (SFTP/NFS/rclone) ke `BACKUP_OFFSITE_DIR` (default `backups/offsite/`).
+- **Frekuensi**: jalankan `python -m src.tools.backup_manager create --offsite` harian (via cron/docker scheduler).
 
 ### Prosedur Backup Manual
 ```bash
-# Backup database PostgreSQL
-pg_dump -U <username> <dbname> > backup/db/db_$(date +%F).sql
-
-# Backup konfigurasi
-cp .env backup/config/env_$(date +%F)
+export BACKUP_ENCRYPTION_PASSWORD='rahasia-super'
+python -m src.tools.backup_manager create --offsite
 ```
+- `backup_manager` otomatis membuat dump database (format custom), menyalin `.env` & konfigurasi penting, serta mengarsipkan log.
+- Arsip terenkripsi: `backups/local/backup-YYYYMMDD-HHMMSS.tar.gz.enc`
+- Metadata hash: `*.enc.meta.json`
+- Data SNK pada tabel `product_term_submissions` tersimpan terenkripsi (AES-256/Fernet). Pastikan `DATA_ENCRYPTION_KEY` dicadangkan secara aman.
 
-### Monitoring Backup
-- Implementasi alert otomatis jika backup gagal/corrupt.
-- Verifikasi integritas backup dengan checksum.
-- Uji restore dari backup setiap bulan dan dokumentasikan hasilnya di `/logs/maintenance/`.
+- **Monitoring Backup**
+  - Backup otomatis berjalan di dalam container bila `ENABLE_AUTO_BACKUP=true`. Jadwal diatur via `BACKUP_TIME` (format `HH:MM`, timezone mengikuti `BOT_TIMEZONE`). `BACKUP_AUTOMATIC_OFFSITE` menentukan apakah direktori offsite ikut terisi.
+  - Skrip mengirim alert ke owner menggunakan `notify_owners` ketika backup sukses/gagal.
+  - Verifikasi integritas dengan `python -m src.tools.backup_manager verify <file>`.
+  - Uji restore bulanan: jalankan `python -m src.tools.backup_manager restore <file>` di environment staging dan catat hasilnya di `/logs/maintenance/`.
+  - Gunakan `python -m src.tools.backup_manager prune --keep <N>` untuk menerapkan kebijakan retensi.
+  - Jika ingin kendali di host (mis. sinkronisasi object storage), kombinasikan dengan `scripts/cron_backup.sh`.
+  - Job harian `purge_snk_submissions_job` otomatis menghapus submission SNK lebih lama dari `SNK_RETENTION_DAYS` (default 30 hari); pantau log `[snk] Purge ...`.
 
 ---
 
@@ -41,7 +46,7 @@ cp .env backup/config/env_$(date +%F)
 - Monitoring disk usage dan alert jika disk hampir penuh.
 
 ### Health Check
-- Skrip health-check otomatis untuk mendeteksi downtime bot.
+- Health-check berjalan otomatis di dalam container jika `ENABLE_AUTO_HEALTHCHECK=true` (interval `HEALTHCHECK_INTERVAL_MINUTES`). Jika ingin redundansi dari host, jalankan `python -m src.tools.healthcheck` via cron/systemd timer atau gunakan `scripts/cron_healthcheck.sh`.
 - Alert real-time ke bot owner khusus notifikasi jika bot down, resource kritis, atau error fatal.
 - Sertakan info `bot_store_name` pada setiap alert agar owner tahu bot mana yang bermasalah.
 
@@ -53,6 +58,7 @@ cp .env backup/config/env_$(date +%F)
 - Audit dependency setiap bulan, update ke versi stabil dan aman.
 - Catat perubahan dependency di `docs/08_release_notes.md`.
 - Lakukan testing di staging sebelum update di production.
+- Untuk lingkungan Docker: build ulang image (`docker build -t bot-auto-order:latest .`), lalu rolling restart tiap tenant (`docker compose -f compose.yml pull && docker compose -f compose.yml up -d`).
 
 ### Patch & Bugfix
 - Semua patch dan bugfix didokumentasikan di log dan release notes.
@@ -117,6 +123,7 @@ cp .env backup/config/env_$(date +%F)
 - [ ] Update dependency & patch terdokumentasi
 - [ ] SOP recovery tersedia & diuji
 - [ ] Audit maintenance tercatat di log
+- [ ] Status container dicek rutin (`docker compose ps` per tenant)
 
 ---
 

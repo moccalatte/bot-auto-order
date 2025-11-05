@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  bot:
+    image: ${IMAGE_NAME:-bot-auto-order:latest}
+    container_name: bot-${STORE_SLUG:?STORE_SLUG-not-set}
+    restart: always
+    env_file:
+      - ./bot.env
+    environment:
+      TELEGRAM_MODE: "${TELEGRAM_MODE:-auto}"
+      TELEGRAM_WEBHOOK_URL: "${TELEGRAM_WEBHOOK_URL:-}"
+      PAKASIR_HOST: "0.0.0.0"
+      PAKASIR_PORT: "${PAKASIR_PORT:-9000}"
+    ports:
+      - "${BOT_WEBHOOK_PORT:-8080}:8080"
+      - "${PAKASIR_PORT:-9000}:9000"
+    volumes:
+      - ./logs:/app/logs
+      - ./backups/local:/app/backups/local
+      - ./backups/offsite:/app/backups/offsite
+    healthcheck:
+      test: ["CMD", "python", "-m", "src.tools.healthcheck"]
+      interval: 5m
+      timeout: 20s
+      retries: 3
+      start_period: 40s

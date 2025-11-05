@@ -32,7 +32,7 @@ Dokumen ini merangkum kebijakan keamanan, autentikasi, validasi, logging, dan mi
 - **Environment Variables:**  
   Semua kredensial (API key, webhook secret, bot token) disimpan di file `.env` dan masuk `.gitignore`.
 - **Sensitive Data:**  
-  Data sensitif (screenshot SNK, data customer) dienkripsi di database dan hanya dapat diakses oleh admin/owner yang berwenang.
+  Data sensitif (screenshot SNK, data customer) dienkripsi di database menggunakan kunci `DATA_ENCRYPTION_KEY` (Fernet) dan hanya dapat diakses oleh admin/owner yang berwenang. Retensi diatur lewat `SNK_RETENTION_DAYS`.
 - **No Hardcoded Secrets:**  
   Dilarang menyimpan credential atau data sensitif di source code.
 

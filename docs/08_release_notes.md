@@ -5,6 +5,26 @@ Dokumen ini mencatat perubahan penting, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
+## Version 0.2.1 – 2025-06-05
+### Added
+- Mode `auto` pada `src/main.py` dan `scripts/run_stack.sh` untuk failover webhook → polling tanpa downtime. Dokumentasi switch DNS/Reverse Proxy ditambahkan ke `docs/10_roadmap_critical.md`.
+- CLI `python -m src.tools.healthcheck` yang menulis log ke `logs/health-check/` dan mengirim alert ke owner.
+- Dockerfile + template Compose untuk multi-tenant deployment `deployments/bot-<store>-<gateway>` dengan restart policy.
+- Enkripsi data SNK menggunakan `DATA_ENCRYPTION_KEY`, job purge otomatis (`SNK_RETENTION_DAYS`), serta backup manager terenkripsi dengan alert owner.
+- Broadcast queue persisten (`broadcast_jobs`) dengan dispatcher terjadwal dan audit log.
+- Skrip `scripts/provision_tenant.py` dan `scripts/run_tenant.sh` untuk provisioning + menjalankan tenant baru berbasis Docker Compose.
+### Changed
+- Job SNK (`process_pending_snk_notifications`) memakai PostgreSQL advisory lock (`src/services/locks.py`) agar aman di multi-instance.
+- README diperbarui dengan instruksi failover, penggunaan health-check, dan orkestra Docker.
+- Health-check kini memantau CPU/RAM/disk/log usage; owner alert handler + PaymentService failure counter mengirim notifikasi real-time.
+- Docker image diperkecil dengan multi-stage build, serta tersedia `scripts/cron_healthcheck.sh` dan `scripts/cron_backup.sh` untuk automasi operasional.
+- Skrip `scripts/provision_tenant.py` mempercepat pembuatan folder tenant Compose (logs/backups/env) untuk setup multi-store.
+- Scheduler internal (job queue) sekarang menjalankan health-check (`ENABLE_AUTO_HEALTHCHECK`) dan backup harian (`ENABLE_AUTO_BACKUP`, `BACKUP_TIME`) tanpa perlu cron host.
+### Known Issues
+- Health-check memerlukan dependency `httpx` dan koneksi Postgres aktif; jalankan di lingkungan yang sudah menginstal `requirements.txt`.
+
+---
+
 ## Version 0.1.0 – 2025-05-01
 ### Added
 - Inisialisasi struktur starterkit di folder `docs/`

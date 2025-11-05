@@ -28,6 +28,7 @@ from src.services.order import (
 from src.services.users import block_user, list_users, unblock_user
 from src.services.voucher import add_voucher, delete_voucher, list_vouchers
 from src.services.terms import set_product_terms, clear_product_terms
+from src.services.owner_alerts import notify_owners
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,9 @@ async def save_product_snk(product_id: int, content: str, actor_id: int) -> str:
         product_id,
         product.name,
     )
+    await notify_owners(
+        f"✏️ SNK produk '{product.name}' diperbarui oleh admin {actor_id}."
+    )
     return (
         f"📜 SNK untuk '{product.name}' berhasil disimpan.\n"
         "Customer akan menerima panduan ini setelah pembayaran sukses."
@@ -148,6 +152,9 @@ async def clear_product_snk(product_id: int, actor_id: int) -> str:
         actor_id,
         product_id,
         product.name,
+    )
+    await notify_owners(
+        f"🧹 SNK produk '{product.name}' dihapus oleh admin {actor_id}."
     )
     return f"🧹 SNK untuk '{product.name}' sudah dihapus."
 

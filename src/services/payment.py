@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from datetime import datetime, timezone
 from typing import Dict, Tuple
 from uuid import uuid4
@@ -12,6 +13,7 @@ from src.core.telemetry import TelemetryTracker
 from src.services.cart import Cart
 from src.services.catalog import Product
 from src.services.pakasir import PakasirClient
+from src.services.owner_alerts import notify_owners
 from src.services.postgres import get_pool
 from src.services.users import upsert_user
 from src.services.terms import schedule_terms_notifications
@@ -32,6 +34,28 @@ class PaymentService:
     ) -> None:
         self._pakasir_client = pakasir_client
         self._telemetry = telemetry
+        self._failure_lock = asyncio.Lock()
+        self._consecutive_failures = 0
+        self._alert_threshold = 3
+
+    async def _register_failure(self, reason: str) -> None:
+        async with self._failure_lock:
+            self._consecutive_failures += 1
+            counter = self._consecutive_failures
+        logger.error("[payment] Gateway gagal #%s: %s", counter, reason)
+        if counter >= self._alert_threshold:
+            await notify_owners(
+                "💥 Terjadi kegagalan pembayaran berturut-turut. Harap cek gateway Pakasir.",
+            )
+
+    async def _reset_failures(self) -> None:
+        async with self._failure_lock:
+            if self._consecutive_failures:
+                logger.info(
+                    "[payment] Reset counter kegagalan (sebelumnya %s).",
+                    self._consecutive_failures,
+                )
+            self._consecutive_failures = 0
 
     async def create_invoice(
         self,
@@ -130,11 +154,18 @@ class PaymentService:
                 "note": "Menunggu verifikasi manual owner",
             }
         else:
-            pakasir_response = await self._pakasir_client.create_transaction(
-                method,
-                gateway_order_id,
-                total_cents,
-            )
+            try:
+                pakasir_response = await self._pakasir_client.create_transaction(
+                    method,
+                    gateway_order_id,
+                    total_cents,
+                )
+            except Exception as exc:  # pragma: no cover - network failure
+                await self._register_failure(str(exc))
+                raise PaymentError(
+                    "Gateway pembayaran sedang bermasalah, coba lagi sebentar lagi."
+                ) from exc
+            await self._reset_failures()
             payment_payload = pakasir_response.get("payment", {})
 
         await self._telemetry.increment("carts_created")

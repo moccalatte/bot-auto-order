@@ -70,6 +70,7 @@ from src.services.catalog import (
     list_products,
     list_products_by_category,
 )
+from src.services.locks import LockNotAcquired, distributed_lock
 from src.services.payment import PaymentError, PaymentService
 from src.services.pakasir import PakasirClient
 from src.services.stats import get_bot_statistics
@@ -86,12 +87,21 @@ from src.services.users import (
     list_broadcast_targets,
     mark_user_bot_blocked,
 )
+from src.services.broadcast_queue import (
+    create_job as create_broadcast_job,
+    fetch_pending_targets,
+    mark_target_success,
+    mark_target_failed,
+    finalize_jobs,
+    get_job_summary,
+)
 from src.services.terms import (
     get_notification,
     list_pending_notifications,
     mark_notification_responded,
     mark_notification_sent,
     record_terms_submission,
+    purge_old_submissions,
 )
 
 
@@ -410,68 +420,55 @@ async def _handle_snk_submission_message(
     return True
 
 
-def _format_broadcast_summary(result: Dict[str, int]) -> str:
-    """Build broadcast result summary."""
+def _format_broadcast_summary(job_id: int, counts: Dict[str, int]) -> str:
+    """Bangun ringkasan status broadcast."""
+    total = sum(counts.values())
+    sent = counts.get("sent", 0)
+    failed = counts.get("failed", 0)
+    pending = counts.get("pending", 0)
     return (
-        "📣 Broadcast selesai!\n"
-        f"👥 Target: {result.get('total', 0)}\n"
-        f"✅ Berhasil: {result.get('success', 0)}\n"
-        f"🚫 Bot diblokir: {result.get('blocked', 0)}\n"
-        f"⚠️ Gagal: {result.get('failed', 0)}"
+        "📣 Broadcast dijadwalkan!\n"
+        f"🆔 Job: #{job_id}\n"
+        f"👥 Target: {total}\n"
+        f"✅ Terkirim: {sent}\n"
+        f"⚠️ Pending: {pending}\n"
+        f"🚫 Gagal: {failed}\n"
+        "Progress dipantau otomatis, cek log audit untuk detail."
     )
 
 
-async def _broadcast_message(
+async def _schedule_broadcast_job(
     context: ContextTypes.DEFAULT_TYPE,
     *,
     actor_id: int,
     text: str | None,
     media_file_id: str | None = None,
     media_type: str | None = None,
-) -> Dict[str, int]:
-    """Send broadcast content to all eligible users."""
+) -> Dict[str, int | str]:
+    """Enqueue broadcast dan mulai dispatcher."""
+
     targets = await list_broadcast_targets()
     valid_targets = [
         int(row["telegram_id"]) for row in targets if row.get("telegram_id") is not None
     ]
-    stats = {"total": len(valid_targets), "success": 0, "blocked": 0, "failed": 0}
     if not valid_targets:
         logger.info("[broadcast] Tidak ada target broadcast.")
-        return stats
-    for telegram_id in valid_targets:
-        try:
-            if media_file_id and media_type == "photo":
-                await context.bot.send_photo(
-                    chat_id=telegram_id,
-                    photo=media_file_id,
-                    caption=text or "",
-                )
-            else:
-                await context.bot.send_message(
-                    chat_id=telegram_id,
-                    text=text or "",
-                )
-            stats["success"] += 1
-        except Forbidden:
-            stats["blocked"] += 1
-            await mark_user_bot_blocked(telegram_id)
-        except TelegramError as exc:  # pragma: no cover - network failure
-            stats["failed"] += 1
-            logger.error(
-                "[broadcast] Gagal mengirim ke %s: %s",
-                telegram_id,
-                exc,
-            )
-        await asyncio.sleep(0.05)
-    logger.info(
-        "[broadcast] Actor %s selesai. total=%s success=%s blocked=%s failed=%s",
-        actor_id,
-        stats["total"],
-        stats["success"],
-        stats["blocked"],
-        stats["failed"],
+        return {"message": "📣 Tidak ada user yang bisa menerima broadcast saat ini."}
+
+    job_id = await create_broadcast_job(
+        actor_telegram_id=actor_id,
+        message=text,
+        media_file_id=media_file_id,
+        media_type=media_type,
+        targets=valid_targets,
     )
-    return stats
+    summary = await get_job_summary(job_id)
+    # Trigger dispatcher segera agar job mulai berjalan
+    await process_broadcast_queue(context)
+    return {
+        "job_id": job_id,
+        "counts": summary.get("counts", {}),
+    }
 
 
 async def show_product_detail(
@@ -493,41 +490,105 @@ async def process_pending_snk_notifications(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
     """Background job to deliver SNK messages to customers."""
-    notifications = await list_pending_notifications(limit=10)
-    if not notifications:
-        return
-    for notification in notifications:
-        notification_id = int(notification["id"])
-        telegram_user_id = int(notification["telegram_user_id"])
-        product_id = int(notification["product_id"])
-        product = await get_product(product_id)
-        product_name = product.name if product else "produk ini"
-        snk_text = notification.get("content") or ""
-        message_text = (
-            f"📜 SNK untuk {product_name}\n\n"
-            f"{snk_text}\n\n"
-            "Jika sudah mengikuti instruksi, klik tombol di bawah untuk kirim bukti ya."
+    try:
+        async with distributed_lock("snk_notification_dispatch"):
+            notifications = await list_pending_notifications(limit=10)
+            if not notifications:
+                return
+            for notification in notifications:
+                notification_id = int(notification["id"])
+                telegram_user_id = int(notification["telegram_user_id"])
+                product_id = int(notification["product_id"])
+                product = await get_product(product_id)
+                product_name = product.name if product else "produk ini"
+                snk_text = notification.get("content") or ""
+                message_text = (
+                    f"📜 SNK untuk {product_name}\n\n"
+                    f"{snk_text}\n\n"
+                    "Jika sudah mengikuti instruksi, klik tombol di bawah untuk kirim bukti ya."
+                )
+                try:
+                    await context.bot.send_message(
+                        chat_id=telegram_user_id,
+                        text=message_text,
+                        reply_markup=keyboards.snk_confirmation_keyboard(
+                            notification_id
+                        ),
+                    )
+                    await mark_notification_sent(notification_id)
+                except Forbidden:
+                    logger.warning(
+                        "[snk] User %s memblokir bot saat kirim SNK.",
+                        telegram_user_id,
+                    )
+                    await mark_notification_sent(notification_id)
+                    await mark_user_bot_blocked(telegram_user_id)
+                except TelegramError as exc:  # pragma: no cover - network failure
+                    logger.error(
+                        "[snk] Gagal mengirim SNK ke user %s: %s",
+                        telegram_user_id,
+                        exc,
+                    )
+                await asyncio.sleep(0.05)
+    except LockNotAcquired:
+        logger.debug(
+            "[snk] Pengiriman SNK dilewati karena lock dipegang instance lain."
         )
+
+
+async def process_broadcast_queue(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Dispatcher untuk antrian broadcast yang persisten di database."""
+
+    targets = await fetch_pending_targets(limit=20)
+    if not targets:
+        await finalize_jobs()
+        return
+
+    for target in targets:
+        target_id = int(target["id"])
+        telegram_id = int(target["telegram_id"])
+        message_text = target.get("message") or ""
+        media_file_id = target.get("media_file_id")
+        media_type = target.get("media_type")
         try:
-            await context.bot.send_message(
-                chat_id=telegram_user_id,
-                text=message_text,
-                reply_markup=keyboards.snk_confirmation_keyboard(notification_id),
-            )
-            await mark_notification_sent(notification_id)
+            if media_file_id and media_type == "photo":
+                await context.bot.send_photo(
+                    chat_id=telegram_id,
+                    photo=media_file_id,
+                    caption=message_text,
+                )
+            else:
+                await context.bot.send_message(chat_id=telegram_id, text=message_text)
+            await mark_target_success(target_id)
         except Forbidden:
+            await mark_target_failed(target_id, "bot diblokir")
+            await mark_user_bot_blocked(telegram_id)
             logger.warning(
-                "[snk] User %s memblokir bot saat kirim SNK.",
-                telegram_user_id,
+                "[broadcast] User %s memblokir bot, target ditandai gagal.",
+                telegram_id,
             )
-            await mark_notification_sent(notification_id)
-            await mark_user_bot_blocked(telegram_user_id)
         except TelegramError as exc:  # pragma: no cover - network failure
+            await mark_target_failed(target_id, str(exc))
             logger.error(
-                "[snk] Gagal mengirim SNK ke user %s: %s",
-                telegram_user_id,
+                "[broadcast] Gagal mengirim ke %s: %s",
+                telegram_id,
                 exc,
             )
+        await asyncio.sleep(0.05)
+
+    await finalize_jobs()
+
+
+async def purge_snk_submissions_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Hapus submission SNK lama sesuai retention policy."""
+
+    settings = get_settings()
+    retention = getattr(settings, "snk_retention_days", 30)
+    if retention <= 0:
+        return
+    deleted = await purge_old_submissions(retention)
+    if deleted:
+        logger.info("[snk] Purge %s submission lama (>%s hari).", deleted, retention)
 
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -579,12 +640,22 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                         response = "⚠️ Pesan broadcast tidak boleh kosong."
                         keep_state = True
                     else:
-                        stats = await _broadcast_message(
+                        result = await _schedule_broadcast_job(
                             context,
                             actor_id=user.id,
                             text=text,
                         )
-                        response = _format_broadcast_summary(stats)
+                        if "job_id" not in result:
+                            response = result.get(
+                                "message",
+                                "⚠️ Broadcast gagal dijadwalkan.",
+                            )
+                            keep_state = True
+                        else:
+                            response = _format_broadcast_summary(
+                                int(result["job_id"]),
+                                result.get("counts", {}),
+                            )
                 elif state.action == "manage_product_snk":
                     response = await handle_manage_product_snk_input(text, user.id)  # type: ignore[arg-type]
                 elif state.action == "edit_product":
@@ -827,7 +898,7 @@ async def media_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if state and state.action == "broadcast_message":
             file_id = message.photo[-1].file_id
             caption = (message.caption or "").strip()
-            stats = await _broadcast_message(
+            result = await _schedule_broadcast_job(
                 context,
                 actor_id=user.id,
                 text=caption,
@@ -835,7 +906,19 @@ async def media_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 media_type="photo",
             )
             clear_admin_state(context.user_data)
-            await message.reply_text(_format_broadcast_summary(stats))
+            if "job_id" not in result:
+                await message.reply_text(
+                    result.get("message", "⚠️ Broadcast gagal dijadwalkan."),
+                    reply_markup=ReplyKeyboardRemove(),
+                )
+            else:
+                await message.reply_text(
+                    _format_broadcast_summary(
+                        int(result["job_id"]),
+                        result.get("counts", {}),
+                    ),
+                    reply_markup=ReplyKeyboardRemove(),
+                )
             return
 
 
@@ -1182,6 +1265,18 @@ def setup_bot_data(
             interval=60,
             first=10,
             name="snk_notifier",
+        )
+        application.job_queue.run_repeating(
+            process_broadcast_queue,
+            interval=10,
+            first=5,
+            name="broadcast_dispatcher",
+        )
+        application.job_queue.run_repeating(
+            purge_snk_submissions_job,
+            interval=24 * 3600,
+            first=60,
+            name="snk_purge",
         )
 
 

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import logging
+import os
 
 import uvloop
 from telegram.ext import Application
@@ -13,6 +13,7 @@ from src.bot import handlers
 from src.core.config import get_settings
 from src.core.logging import setup_logging
 from src.core.telemetry import TelemetryTracker
+from src.core.scheduler import register_scheduled_jobs
 from src.services.pakasir import PakasirClient
 from src.services.postgres import get_pool
 
@@ -23,7 +24,17 @@ logger = logging.getLogger(__name__)
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description="Bot Auto Order Telegram")
-    parser.add_argument("--webhook", action="store_true", help="Run using webhook mode")
+    parser.add_argument(
+        "--mode",
+        choices=("auto", "polling", "webhook"),
+        default="auto",
+        help="Run mode: polling, webhook, or auto (default).",
+    )
+    parser.add_argument(
+        "--webhook",
+        action="store_true",
+        help="(deprecated) Equivalent to --mode=webhook.",
+    )
     parser.add_argument("--webhook-url", help="Public HTTPS URL for Telegram webhook")
     parser.add_argument("--listen", default="0.0.0.0", help="Webhook listen address")
     parser.add_argument("--port", type=int, default=8080, help="Webhook listen port")
@@ -57,6 +68,11 @@ def main() -> None:
     settings = get_settings()
     setup_logging()
 
+    mode = args.mode
+    if args.webhook:
+        logger.warning("--webhook is deprecated; prefer --mode=webhook.")
+        mode = "webhook"
+
     telemetry = TelemetryTracker()
     pakasir_client = PakasirClient()
 
@@ -70,18 +86,57 @@ def main() -> None:
 
     handlers.setup_bot_data(application, pakasir_client, telemetry)
     handlers.register(application)
+    register_scheduled_jobs(application)
 
-    if args.webhook:
-        if not args.webhook_url:
-            raise SystemExit("Webhook mode requires --webhook-url.")
-        application.run_webhook(
-            listen=args.listen,
-            port=args.port,
-            url_path=args.path,
-            webhook_url=args.webhook_url.rstrip("/") + f"/{args.path}",
-        )
-    else:
+    webhook_url = args.webhook_url or os.environ.get("TELEGRAM_WEBHOOK_URL")
+    listen = args.listen
+    port = args.port
+    url_path = args.path
+
+    def _run_polling() -> None:
+        logger.info("▶️ Starting bot in polling mode.")
         application.run_polling()
+
+    def _run_webhook(url: str) -> None:
+        resolved = url.rstrip("/") + f"/{url_path}"
+        logger.info(
+            "🌐 Starting bot in webhook mode. listen=%s port=%s url=%s",
+            listen,
+            port,
+            resolved,
+        )
+        application.run_webhook(
+            listen=listen,
+            port=port,
+            url_path=url_path,
+            webhook_url=resolved,
+        )
+
+    if mode == "polling":
+        _run_polling()
+        return
+
+    if mode == "webhook":
+        if not webhook_url:
+            raise SystemExit(
+                "Webhook mode requires --webhook-url or TELEGRAM_WEBHOOK_URL."
+            )
+        _run_webhook(webhook_url)
+        return
+
+    # auto mode
+    if webhook_url:
+        try:
+            _run_webhook(webhook_url)
+            return
+        except Exception as exc:  # pragma: no cover - startup failure fallback
+            logger.exception(
+                "Webhook startup failed (%s). Falling back to polling mode.", exc
+            )
+    else:
+        logger.info("Webhook URL not provided; defaulting to polling mode.")
+
+    _run_polling()
 
 
 if __name__ == "__main__":
