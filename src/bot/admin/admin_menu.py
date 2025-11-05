@@ -68,16 +68,6 @@ def admin_response_menu() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                "⚠️ Edit Error Message", callback_data="admin:edit_error"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "📦 Edit Product Message", callback_data="admin:edit_product"
-            )
-        ],
-        [
-            InlineKeyboardButton(
                 "👁️ Preview Semua Template", callback_data="admin:preview_responses"
             )
         ],

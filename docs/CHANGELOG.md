@@ -1,7 +1,52 @@
-bot-auto-order/docs/CHANGELOG.md
 # 📝 Changelog – Bot Auto Order Telegram
 
 Dokumen ini mencatat riwayat perubahan, penambahan fitur, bugfix, refactor, dan milestone penting pada proyek bot auto order Telegram. Format mengikuti best practice changelog agar mudah diaudit dan diikuti oleh tim/AI builder berikutnya.
+
+---
+
+## [0.3.0] – 2025-01-XX (UX Improvements & Bug Fixes)
+
+### Added
+- **Inline Keyboard untuk Customer Welcome**: Customer sekarang mendapat inline keyboard dengan tombol '🏷 Cek Stok' dan '🛍 Semua Produk' saat `/start`
+- **Simplified Voucher Generation**: Format voucher generation disederhanakan menjadi `KODE | NOMINAL | BATAS_PAKAI`
+  - Support persentase: `HEMAT10 | 10% | 100`
+  - Support fixed amount: `DISKON5K | 5000 | 50`
+  - Auto-generate description berdasarkan tipe diskon
+  - Voucher langsung aktif tanpa perlu set tanggal
+  - Validasi lengkap untuk setiap field input
+
+### Fixed
+- **Critical: Missing Import Error**: Fixed `NameError: name 'add_product' is not defined` saat tambah produk
+  - Added missing imports: `add_product`, `edit_product`, `delete_product` dari `src.services.catalog`
+  - Added missing import: `clear_product_terms` dari `src.services.terms`
+- **Welcome Message Consistency**: Customer sekarang mendapat inline keyboard dengan quick actions saat `/start`
+- **Cancel Button Behavior**: Tombol batal sekarang menampilkan welcome message yang lengkap (sama seperti `/start`)
+  - Callback `admin:cancel` update untuk show welcome dengan stats
+  - Text-based cancel (`❌ Batal`, `❌ Batal Broadcast`) juga show welcome message
+- **Broadcast Cancel UX**: Broadcast cancel button diubah dari ReplyKeyboardMarkup ke InlineKeyboardMarkup untuk konsistensi
+- **Admin Menu Cleanup**: Removed menu yang tidak perlu:
+  - ❌ "Edit Error Message" 
+  - ❌ "Edit Product Message"
+  - ✅ Tersisa hanya menu esensial dan fungsional
+
+### Changed
+- **Keyboard Consistency**: Semua cancel buttons di admin flows sekarang menggunakan InlineKeyboardButton
+- **Voucher Input Format**: Completely rewritten untuk UX yang lebih baik dan error messages yang lebih jelas
+- **Import Cleanup**: Removed unused imports untuk code cleanliness
+
+### Documentation
+- Updated `docs/fixing_plan.md` dengan status perbaikan lengkap
+- Updated `docs/CHANGELOG.md` (this file) dengan v0.3.0 entry
+- Updated `docs/08_release_notes.md` dengan release notes v0.3.0
+- Updated `docs/IMPLEMENTATION_REPORT.md` dengan detail implementasi terbaru
+- Updated `README.md` version bump ke v0.3.0
+
+### Technical Details
+- Files Modified: 3 (handlers.py, admin_menu.py, admin_actions.py)
+- Files Updated: 5 (documentation files)
+- Breaking Changes: None (fully backward compatible)
+- Database Changes: None
+- Migration Required: None (just restart bot)
 
 ---
 

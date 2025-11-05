@@ -2,7 +2,7 @@
 
 Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui Pakasir, serta fitur kustomisasi menu dan respon bot oleh admin langsung dari Telegram.
 
-> **Status:** ✅ Production Ready | **Version:** 0.2.3 | **Last Updated:** 2025-01-16
+> **Status:** ✅ Production Ready | **Version:** 0.3.0 | **Last Updated:** 2025-01-XX
 
 ## Struktur Proyek
 - `src/`
@@ -21,15 +21,17 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
 
 ## Fitur Utama
 - **Menu Admin Telegram dengan Hierarki**: Admin dapat mengakses menu khusus `⚙️ Admin Settings` dengan submenu terstruktur:
-  - **Kelola Respon Bot**: Preview template pesan (welcome, product, cart, payment, error) dengan placeholder, edit teks/gambar, dan **inline cancel button** di setiap mode input
+  - **Kelola Respon Bot**: Preview template pesan (welcome, payment success) dengan placeholder, edit teks/gambar, dan **inline cancel button** di setiap mode input
   - **Kelola Produk**: CRUD produk dengan **wizard step-by-step** (5 langkah ramah awam), tanpa kategori, pilih produk dari list untuk edit/hapus
   - **Kelola Order**: Lihat dan update status order
   - **Kelola User**: Lihat user statistics, blokir/unblokir user, dengan tombol navigasi
-  - **Kelola Voucher**: Generate voucher dengan format user-friendly (nominal, persentase, atau teks custom) dan **inline cancel button**
+  - **Kelola Voucher**: Generate voucher dengan **format sederhana** `KODE | NOMINAL | BATAS_PAKAI` (support % dan fixed amount) dan **inline cancel button**
   - **Broadcast**: Kirim pesan ke semua user dengan statistik (total, success, failed) dan **inline cancel button**
   - **Calculator**: User-friendly calculator untuk refund/deposit yang **langsung berfungsi** (no command), dengan **inline cancel button**
   - **Statistik**: Dashboard lengkap dengan metrik bot (fixed: no more UnboundLocalError)
   - **Deposit**: Kelola deposit user dengan inline buttons
+- **Customer Welcome Enhancement**: Customer mendapat inline keyboard dengan quick actions ('🏷 Cek Stok' dan '🛍 Semua Produk') saat `/start`
+- **Consistent Cancel Behavior**: Semua tombol batal di menu admin menampilkan welcome message yang lengkap dan konsisten
 - **Role-Based Keyboard**: Bot menampilkan keyboard yang berbeda berdasarkan role user:
   - Admin: Melihat tombol `⚙️ Admin Settings` untuk akses penuh
   - Customer: Melihat keyboard customer standar tanpa akses admin

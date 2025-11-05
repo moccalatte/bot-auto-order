@@ -45,15 +45,10 @@ from src.core.custom_config import (
 from src.bot.admin.admin_menu import handle_admin_menu
 from src.bot.admin.admin_actions import (
     AdminActionError,
-    handle_add_product_input,
     handle_block_user_input,
-    handle_delete_product_input,
-    handle_edit_product_input,
     handle_update_order_input,
     handle_generate_voucher_input,
     handle_delete_voucher_input,
-    handle_manage_product_snk_input,
-    list_categories_overview,
     render_order_overview,
     render_product_overview,
     render_user_overview,
@@ -70,6 +65,9 @@ from src.core.telemetry import TelemetryTracker
 from src.services.cart import Cart, CartManager
 from src.services.catalog import (
     Product,
+    add_product,
+    delete_product,
+    edit_product,
     get_product,
     list_categories,
     list_products,
@@ -101,6 +99,7 @@ from src.services.broadcast_queue import (
     get_job_summary,
 )
 from src.services.terms import (
+    clear_product_terms,
     get_notification,
     list_pending_notifications,
     mark_notification_responded,
@@ -139,7 +138,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     settings = get_settings()
     stats = await get_bot_statistics()
-    categories = await list_categories()
     products = await list_products()
 
     context.user_data["product_list"] = products
@@ -162,16 +160,36 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if is_admin:
         reply_keyboard = admin_main_menu()
+        # Send welcome message with reply keyboard only for admin
+        await update.message.reply_text(
+            welcome_text,
+            reply_markup=reply_keyboard,
+            parse_mode=ParseMode.HTML,
+        )
     else:
         reply_keyboard = keyboards.main_reply_keyboard(range(1, min(len(products), 6)))
-
-    # Send welcome message with reply keyboard only (no extra messages)
-    # User requested ONLY 2 messages: sticker + welcome
-    await update.message.reply_text(
-        welcome_text,
-        reply_markup=reply_keyboard,
-        parse_mode=ParseMode.HTML,
-    )
+        # For customers, add inline keyboard with quick actions
+        inline_keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("🏷 Cek Stok", callback_data="category:all"),
+                    InlineKeyboardButton(
+                        "🛍 Semua Produk", callback_data="category:all"
+                    ),
+                ]
+            ]
+        )
+        # Send welcome message with both reply keyboard and inline keyboard
+        await update.message.reply_text(
+            welcome_text,
+            reply_markup=reply_keyboard,
+            parse_mode=ParseMode.HTML,
+        )
+        # Send inline keyboard in a separate message
+        await update.message.reply_text(
+            "📱 Aksi Cepat:",
+            reply_markup=inline_keyboard,
+        )
 
 
 def get_cart_manager(context: ContextTypes.DEFAULT_TYPE) -> CartManager:
@@ -1204,10 +1222,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         set_admin_state(context.user_data, "broadcast_message")
 
-        cancel_keyboard = ReplyKeyboardMarkup(
-            [["❌ Batal Broadcast"]],
-            resize_keyboard=True,
-            one_time_keyboard=True,
+        cancel_keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("❌ Batal Broadcast", callback_data="admin:cancel")]]
         )
 
         await update.message.reply_text(
@@ -1219,7 +1235,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             f"📝 <b>Cara Pakai:</b>\n"
             f"• Kirim <b>teks</b> untuk broadcast pesan\n"
             f"• Kirim <b>foto + caption</b> untuk broadcast gambar\n\n"
-            f"Ketik <b>❌ Batal Broadcast</b> untuk membatalkan.",
+            f"Tekan tombol <b>❌ Batal Broadcast</b> di bawah untuk membatalkan.",
             reply_markup=cancel_keyboard,
             parse_mode=ParseMode.HTML,
         )
@@ -1273,14 +1289,29 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    # Handle cancel buttons
+    # Handle text-based cancel buttons (legacy support)
     if text in ["❌ Batal", "❌ Batal Broadcast"]:
         clear_admin_state(context.user_data)
-        from src.bot.admin.admin_menu import admin_settings_menu
+        from src.bot.admin.admin_menu import admin_main_menu
+
+        settings = get_settings()
+        stats = await get_bot_statistics()
+        mention = user.first_name if user else "Sahabat"
+
+        welcome_text = messages.welcome_message(
+            mention=mention,
+            store_name=settings.store_name,
+            total_users=stats["total_users"],
+            total_transactions=stats["total_transactions"],
+        )
 
         await update.message.reply_text(
-            "✅ <b>Dibatalkan.</b>\n\nKembali ke menu admin.",
-            reply_markup=admin_settings_menu(),
+            "✅ <b>Dibatalkan.</b>",
+            parse_mode=ParseMode.HTML,
+        )
+        await update.message.reply_text(
+            welcome_text,
+            reply_markup=admin_main_menu(),
             parse_mode=ParseMode.HTML,
         )
         return
@@ -1713,27 +1744,35 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return
         elif data == "admin:cancel":
-            # Handle cancel button - clear all states and return to admin menu
+            # Handle cancel button - clear all states and show welcome message
             clear_admin_state(context.user_data)
             context.user_data.pop("refund_calculator_state", None)
             context.user_data.pop("refund_harga", None)
             context.user_data.pop("calculator_formula_state", None)
             context.user_data.pop("pending_snk_product", None)
 
-            from src.bot.admin.admin_menu import admin_settings_menu
+            from src.bot.admin.admin_menu import admin_main_menu
 
+            settings = get_settings()
             stats = await get_bot_statistics()
+            user = update.effective_user
+            mention = user.first_name if user else "Sahabat"
+
+            welcome_text = messages.welcome_message(
+                mention=mention,
+                store_name=settings.store_name,
+                total_users=stats["total_users"],
+                total_transactions=stats["total_transactions"],
+            )
+
             await update.effective_message.edit_text(
-                f"✅ <b>Dibatalkan.</b>\n\n"
-                f"⚙️ <b>Admin Settings</b>\n\n"
-                f"👤 Total Pengguna: <b>{stats['total_users']}</b> orang\n"
-                f"💰 Total Transaksi: <b>{stats['total_transactions']}</b>x\n\n"
-                f"Pilih menu di bawah:",
+                f"✅ <b>Dibatalkan.</b>",
                 parse_mode=ParseMode.HTML,
             )
             await update.effective_message.reply_text(
-                "Kembali ke menu admin.",
-                reply_markup=admin_settings_menu(),
+                welcome_text,
+                reply_markup=admin_main_menu(),
+                parse_mode=ParseMode.HTML,
             )
             return
         elif data.startswith("admin:add_snk:"):

@@ -422,21 +422,55 @@ def _parse_optional_datetime(value: str) -> datetime | None:
 
 async def handle_generate_voucher_input(raw: str, actor_id: int) -> str:
     """
-    Format: kode|deskripsi|tipe|nilai|max_uses|valid_from|valid_until
-    Gunakan '-' untuk nilai opsional.
+    Format sederhana: KODE | NOMINAL | BATAS_PAKAI
+
+    Contoh:
+    - HEMAT10 | 10% | 100  -> diskon 10% max 100 kali pakai
+    - DISKON5K | 5000 | 50 -> diskon Rp 5.000 max 50 kali pakai
     """
 
     parts = [part.strip() for part in raw.split("|")]
-    if len(parts) < 7:
+    if len(parts) != 3:
         raise AdminActionError(
-            "Format tidak valid. Gunakan: kode|deskripsi|tipe|nilai|max_uses|valid_from|valid_until."
+            "Format tidak valid. Gunakan: KODE | NOMINAL | BATAS_PAKAI\n"
+            "Contoh: HEMAT10 | 10% | 100"
         )
 
-    code, description, discount_type = parts[:3]
-    discount_value = _parse_int(parts[3], "nilai")
-    max_uses = None if parts[4] in {"-", ""} else _parse_int(parts[4], "max_uses")
-    valid_from = _parse_optional_datetime(parts[5])
-    valid_until = _parse_optional_datetime(parts[6])
+    code = parts[0].upper()  # Force uppercase untuk konsistensi
+    nominal_str = parts[1]
+    max_uses_str = parts[2]
+
+    # Parse nominal - bisa berupa persen (10%) atau nilai rupiah (5000)
+    if nominal_str.endswith("%"):
+        discount_type = "percentage"
+        try:
+            discount_value = int(nominal_str[:-1])
+            if discount_value <= 0 or discount_value > 100:
+                raise AdminActionError("Persen harus antara 1-100")
+        except ValueError:
+            raise AdminActionError(f"Format persen tidak valid: {nominal_str}")
+    else:
+        discount_type = "fixed"
+        try:
+            discount_value = int(nominal_str)
+            if discount_value <= 0:
+                raise AdminActionError("Nominal harus lebih dari 0")
+        except ValueError:
+            raise AdminActionError(f"Format nominal tidak valid: {nominal_str}")
+
+    # Parse max uses
+    try:
+        max_uses = int(max_uses_str)
+        if max_uses <= 0:
+            raise AdminActionError("Batas pakai harus lebih dari 0")
+    except ValueError:
+        raise AdminActionError(f"Format batas pakai tidak valid: {max_uses_str}")
+
+    # Create voucher dengan deskripsi otomatis
+    if discount_type == "percentage":
+        description = f"Diskon {discount_value}%"
+    else:
+        description = f"Diskon Rp {discount_value:,}".replace(",", ".")
 
     voucher_id = await add_voucher(
         code=code,
@@ -444,19 +478,18 @@ async def handle_generate_voucher_input(raw: str, actor_id: int) -> str:
         discount_type=discount_type,
         discount_value=discount_value,
         max_uses=max_uses,
-        valid_from=valid_from,
-        valid_until=valid_until,
+        valid_from=None,  # Langsung aktif
+        valid_until=None,  # Tidak ada expired
     )
+
     logger.info(
-        "Admin %s membuat voucher %s (id=%s) tipe=%s nilai=%s max_uses=%s valid_from=%s valid_until=%s",
+        "Admin %s membuat voucher %s (id=%s) tipe=%s nilai=%s max_uses=%s",
         actor_id,
         code,
         voucher_id,
         discount_type,
         discount_value,
-        max_uses or "-",
-        valid_from,
-        valid_until,
+        max_uses,
     )
     audit_log(
         actor_id=actor_id,
@@ -467,13 +500,16 @@ async def handle_generate_voucher_input(raw: str, actor_id: int) -> str:
             "discount_type": discount_type,
             "discount_value": discount_value,
             "max_uses": max_uses,
-            "valid_from": valid_from.isoformat() if valid_from else None,
-            "valid_until": valid_until.isoformat() if valid_until else None,
         },
     )
+
     return (
-        f"✅ Voucher {code} berhasil dibuat (ID {voucher_id}).\n"
-        "Perubahan tercatat di log untuk audit owner."
+        f"✅ <b>Voucher berhasil dibuat!</b>\n\n"
+        f"🎟️ Kode: <code>{code}</code>\n"
+        f"💰 {description}\n"
+        f"📊 Max Pakai: <b>{max_uses}x</b>\n"
+        f"🆔 ID: <code>{voucher_id}</code>\n\n"
+        "📝 Perubahan tercatat di log untuk audit."
     )
 
 
