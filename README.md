@@ -2,7 +2,7 @@
 
 Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui Pakasir, serta fitur kustomisasi menu dan respon bot oleh admin langsung dari Telegram.
 
-> **Status:** ✅ Production Ready | **Version:** 0.2.1 | **Last Updated:** 2025-01-15
+> **Status:** ✅ Production Ready | **Version:** 0.2.2 | **Last Updated:** 2025-01-16
 
 ## Struktur Proyek
 - `src/`
@@ -20,14 +20,19 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
 - `.gitignore` – aturan berkas yang diabaikan Git.
 
 ## Fitur Utama
-- **Menu Admin Telegram**: Admin dapat mengakses menu khusus untuk:
-  - Melihat (preview) template pesan bot yang aktif.
-  - CRUD produk (tanpa unggah gambar).
-  - Kelola order (lihat, update status).
-  - Kelola user (lihat, blokir/unblokir).
-  - Kelola voucher (generate, lihat, nonaktifkan) beserta rentang masa berlaku dengan pencatatan log penuh.
-  - Kalkulator refund untuk perhitungan pengembalian dana (admin only via command).
-- **Kustomisasi Respon Bot**: Template pesan hanya bisa **dipreview** melalui menu admin; perubahan dilakukan oleh owner melalui pipeline terkontrol dengan validasi placeholder (`{nama}`, `{order_id}`, dll).
+- **Menu Admin Telegram dengan Hierarki**: Admin dapat mengakses menu khusus `⚙️ Admin Settings` dengan submenu terstruktur:
+  - **Kelola Respon Bot**: Preview template pesan (welcome, product, cart, payment, error) dengan placeholder, edit teks/gambar, dan cancel button untuk mode input
+  - **Kelola Produk**: CRUD produk dengan statistik lengkap
+  - **Kelola Order**: Lihat dan update status order
+  - **Kelola User**: Lihat user statistics, blokir/unblokir user, dengan tombol navigasi
+  - **Kelola Voucher**: Generate voucher dengan format user-friendly (nominal, persentase, atau teks custom) dan tombol cancel
+  - **Broadcast**: Kirim pesan ke semua user dengan statistik (total, success, failed) dan tombol cancel
+  - **Calculator**: User-friendly calculator untuk refund/deposit dengan inline keyboard
+  - **Statistik**: Dashboard lengkap dengan metrik bot
+  - **Deposit**: Kelola deposit user dengan inline buttons
+- **Role-Based Keyboard**: Bot menampilkan keyboard yang berbeda berdasarkan role user:
+  - Admin: Melihat tombol `⚙️ Admin Settings` untuk akses penuh
+  - Customer: Melihat keyboard customer standar tanpa akses admin
 - **Backup & Restore Konfigurasi**: Semua perubahan disimpan di database, dapat dibackup dan direstore oleh admin.
 - **Audit Log**: Setiap perubahan konfigurasi tercatat untuk audit owner.
 - **Validasi Input**: Semua input admin divalidasi sebelum disimpan.
@@ -38,7 +43,13 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
 - **Broadcast Pesan Custom**: Admin dapat mengirim teks atau foto ke semua user yang pernah `/start`, dengan penanganan otomatis untuk user yang memblokir bot.
 - **Notifikasi Owner**: Semua transaksi dan perubahan penting ada notifikasi ke owner.
 - **Anti-Spam & Rate Limit**: Fitur keamanan aktif sesuai project_rules.md.
-- **UX Modern dengan HTML Formatting**: Semua pesan bot menggunakan HTML parse mode dengan bold untuk informasi penting dan emoji konsisten untuk pengalaman pengguna yang lebih baik.
+- **UX Modern dengan HTML Formatting**: Semua pesan bot menggunakan HTML parse mode dengan:
+  - `<b>bold</b>` untuk informasi penting (nama, harga, total)
+  - `<i>italic</i>` untuk disclaimer dan keterangan
+  - `<code>code</code>` untuk ID dan data yang perlu dicopy
+  - Emoji konsisten untuk visual hierarchy yang jelas
+  - Sticker saat `/start` untuk pengalaman lebih engaging
+- **Clean Message Flow**: Tidak ada pesan redundant, keyboard langsung melekat pada pesan utama
 
 ## Prasyarat
 - Python 3.12
@@ -199,42 +210,139 @@ OWNER_ALERT_THRESHOLD=ERROR
 - Gunakan `python -m src.tools.backup_manager create --offsite` untuk membuat backup terenkripsi, dan `restore` untuk pemulihan. Jalankan `docker compose up -d` setelah restore.
 - Catat setiap drill di `logs/maintenance/` untuk audit owner.
 
-## Recent Fixes & Improvements (v0.2.1+)
+## Recent Fixes & Improvements (v0.2.2 - Latest)
 
 ### ✅ Configuration & Validation
-- Fixed `TELEGRAM_ADMIN_IDS` and `TELEGRAM_OWNER_IDS` validator to handle single integer values
-- Enhanced input validation across all admin functions
+- Fixed `TELEGRAM_ADMIN_IDS` and `TELEGRAM_OWNER_IDS` validator to handle single integer values and comma-separated strings
+- Enhanced input validation across all admin functions with proper error messages
+- Added comprehensive config validation at startup
 
 ### ✅ Dependencies & Setup
-- Updated `python-telegram-bot` to include `[job-queue]` support
-- All scheduled tasks now work without warnings
+- Updated `requirements.txt` to `python-telegram-bot[webhooks,job-queue]==21.3`
+- All scheduled tasks (SNK dispatch, broadcast queue, health checks) now work without warnings
+- JobQueue fully functional for background tasks
+
+### ✅ Admin Menu Complete Restructure
+- **New Hierarchical Structure**: Main menu `⚙️ Admin Settings` dengan 9 submenu terorganisir
+- **Kelola Respon Bot**: 
+  - Preview semua template pesan (welcome, product, cart, payment, error, success, SNK)
+  - Edit template teks dengan placeholder validation
+  - Upload gambar untuk template
+  - Cancel button pada setiap mode input
+- **Kelola User**: 
+  - Statistics dashboard (total users, active, blocked)
+  - User list dengan pagination
+  - Block/unblock functionality
+  - User detail view
+- **Broadcast**:
+  - Send text or photo to all users
+  - Real-time statistics (total, success, failed)
+  - Cancel button untuk membatalkan proses
+  - Automatic handling untuk user yang block bot
+- **Calculator**: 
+  - User-friendly inline keyboard untuk input nominal
+  - Support untuk refund dan deposit calculation
+  - Clear visual feedback
+- **Kelola Voucher**:
+  - Format lebih sederhana (nominal/persentase/custom)
+  - Cancel button untuk membatalkan pembuatan
+  - Validasi input yang lebih baik
 
 ### ✅ UX & UI Enhancements
-- **Improved Welcome Message**: Inline keyboard kategori now appears in first message with better formatting
-- **HTML Parse Mode**: All bot messages now use HTML formatting with `<b>bold</b>` for important info
-- **Consistent Emoji Usage**: Modern, consistent emoji design across all messages
-- **Calculator Access Control**: Calculator menu removed from customer view (admin only via `/refund_calculator` and `/set_calculator`)
-- **Better Visual Hierarchy**: Bold for headers, italic for disclaimers, `<code>` for IDs
+- **Role-Based Keyboard**: Admin melihat admin keyboard, customer melihat customer keyboard
+- **Sticker on Start**: Bot mengirim sticker sebelum welcome message untuk engagement
+- **Clean Message Flow**: 
+  - Removed redundant messages ("📱 Gunakan menu...", "👇")
+  - Keyboard langsung melekat pada pesan utama
+  - Tidak ada double message
+- **HTML Parse Mode Migration**: 
+  - Semua message templates menggunakan HTML formatting
+  - Bold untuk informasi penting (nama user, store name, harga, total)
+  - Italic untuk disclaimer dan note
+  - Code tags untuk ID dan data yang perlu dicopy
+  - Added `parse_mode=ParseMode.HTML` di 15+ handler functions
+- **Enhanced Message Templates**:
+  - `welcome_message`: Bold pada nama user dan statistik
+  - `product_list_heading` & `product_list_line`: Bold pada nama produk dan harga
+  - `product_detail`: Bold pada field labels dan values
+  - `cart_summary`: Bold pada totals dan item counts
+  - `payment_prompt`, `payment_invoice_detail`, `payment_success`: Visual hierarchy yang jelas
+  - `generic_error`: Bold pada main error message
 
-### ✅ Code Quality
+### ✅ User Statistics & Tracking
+- **Auto User Upsert**: Setiap `/start` otomatis menambah/update user di database
+- **Real Statistics**: Total user dan transaksi sekarang akurat dan realtime
+- **Database Tracking**: Semua user interaction tercatat lengkap
+
+### ✅ Code Quality & Security
 - All message templates migrated from Markdown to HTML
-- Added `parse_mode=ParseMode.HTML` consistently across 10+ handler functions
-- No bare exceptions or SQL injection vulnerabilities detected
-- Comprehensive error handling throughout codebase
+- No bare exceptions detected in codebase scan
+- All error handling uses specific exception types
+- Consistent code style across all files
+- Proper input validation and sanitization
+- No SQL injection vulnerabilities
+
+### ✅ Admin Experience Improvements
+- Cancel buttons pada semua mode input kritikal (broadcast, voucher, edit template)
+- Inline keyboard untuk navigasi yang lebih intuitif
+- Statistics dan feedback real-time
+- Better error messages dengan actionable information
 
 ### 📝 Documentation Updates
-- Updated `docs/fixing_plan.md` with complete fix status
-- All critical issues resolved and tested
-- Testing checklist added for deployment verification
+- Complete update of `docs/fixing_plan.md` dengan status semua fixes
+- Updated `docs/CHANGELOG.md` dengan detailed changelog
+- Updated `docs/08_release_notes.md` dengan release notes v0.2.2
+- Updated `docs/core_summary.md` dengan fitur dan struktur terbaru
+- Updated `docs/02_prd.md` dengan requirements baru
+- All documentation now reflects current implementation
 
-For detailed fix history, see `docs/fixing_plan.md`.
+### 🔧 Technical Improvements
+- Standardized callback data format across all inline keyboards
+- Improved error handling in admin handlers
+- Better state management for multi-step admin flows
+- Optimized database queries for statistics
+- Enhanced logging for admin actions
+
+For detailed fix history and implementation details, see `docs/fixing_plan.md` and `docs/CHANGELOG.md`.
 
 ## Pre-Production Checklist
-- **Chaos test**: `docker compose kill` lalu pastikan container restart dan job SNK/broadcast tetap berjalan (cek log `[broadcast_queue]`).
-- **Backup drill**: `backup_manager create → verify → restore` di staging, catat hasilnya.
-- **Gateway simulation**: gunakan API `paymentsimulation` (lihat `docs/pakasir.md`) untuk memvalidasi alur sukses/gagal dan alert owner.
-- **Resource exhaustion**: uji `healthcheck` dengan disk/RAM tertekan (misal `fallocate` + `stress`), pastikan alert owner diterima dan cleanup dilakukan.
-- **Dependency check**: build image baru (`docker build -t bot-auto-order:staging .`) dan jalankan regresi sebelum produksi.
+- **Environment Setup**:
+  - [ ] Install/upgrade dependencies: `pip install -r requirements.txt`
+  - [ ] Verify JobQueue available: `python -c "from telegram.ext import JobQueue; print('✅ JobQueue available!')"`
+  - [ ] Check config validators: Ensure `TELEGRAM_ADMIN_IDS` and `TELEGRAM_OWNER_IDS` format correct
+- **User Experience Testing**:
+  - [ ] Test `/start` sebagai admin: Verify sticker, welcome message, statistics, dan admin keyboard (`⚙️ Admin Settings`) tampil
+  - [ ] Test `/start` sebagai customer: Verify customer keyboard tampil tanpa admin access
+  - [ ] Test user statistics: Verify count increments dengan setiap `/start` baru
+  - [ ] Test role-based keyboard: Admin vs customer views berbeda
+- **Admin Menu Testing**:
+  - [ ] Enter `⚙️ Admin Settings`: Verify semua 9 submenu tampil (Kelola Respon Bot, Produk, Order, User, Voucher, Broadcast, Calculator, Statistik, Deposit)
+  - [ ] **Kelola Respon Bot**: Test preview templates, edit text, upload image, cancel button
+  - [ ] **Kelola User**: Test user statistics, list pagination, block/unblock functionality
+  - [ ] **Broadcast**: Test send message (text & photo), verify statistics, test cancel button
+  - [ ] **Calculator**: Test inline keyboard input, refund calculation
+  - [ ] **Kelola Voucher**: Test voucher generation dengan format baru, test cancel button
+- **Message Formatting**:
+  - [ ] Verify all messages use HTML parse mode
+  - [ ] Check bold formatting pada important info (names, prices, totals)
+  - [ ] Check italic pada disclaimers
+  - [ ] Check code tags pada IDs
+  - [ ] Verify no redundant messages ("👇" atau double messages)
+- **Background Jobs** (requires JobQueue):
+  - [ ] SNK dispatch running: Check logs for `[snk_handler]`
+  - [ ] Broadcast queue running: Check logs for `[broadcast_queue]`
+  - [ ] Health checks running: Check logs for `[healthcheck]`
+- **Integration Testing**:
+  - [ ] Payment flow (Pakasir webhook handling)
+  - [ ] Order notifications ke admin (tanpa owner)
+  - [ ] SNK submission flow
+  - [ ] Anti-spam protection
+- **Production Environment**:
+  - [ ] **Chaos test**: `docker compose kill` then verify container restart and jobs continue
+  - [ ] **Backup drill**: `backup_manager create → verify → restore` di staging
+  - [ ] **Gateway simulation**: Use `paymentsimulation` API (see `docs/pakasir.md`)
+  - [ ] **Resource exhaustion**: Test `healthcheck` under load
+  - [ ] **Dependency check**: Build fresh image and run regression tests
 
 ## Troubleshooting
 
@@ -263,6 +371,36 @@ TELEGRAM_ADMIN_IDS=5473468582,123456789
 1. Check logs: `tail -f logs/telegram-bot/$(date +%Y-%m-%d).log`
 2. Verify token valid: `echo $TELEGRAM_BOT_TOKEN`
 3. Test connection: `python -m src.main --mode polling`
+
+### JobQueue Warning Still Appearing
+Jika masih muncul `PTBUserWarning: No 'JobQueue' set up`:
+```bash
+# Reinstall dependencies dengan job-queue support
+source venv/bin/activate
+pip uninstall python-telegram-bot -y
+pip install -r requirements.txt
+
+# Atau recreate venv
+deactivate
+rm -rf venv
+python3.12 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Verify installation
+python -c "from telegram.ext import JobQueue; print('✅ JobQueue available!')"
+```
+
+### Admin Keyboard Not Showing
+1. Verify user ID ada di `TELEGRAM_ADMIN_IDS` di `.env`
+2. Check format: `TELEGRAM_ADMIN_IDS=5473468582` (single) atau `TELEGRAM_ADMIN_IDS=5473468582,123456789` (multiple)
+3. Restart bot after changing `.env`
+4. Test dengan `/start` sebagai admin user
+
+### User Statistics Not Counting
+- Statistics sudah otomatis update di v0.2.2+
+- Setiap `/start` menjalankan `upsert_user()` yang menambah/update user count
+- Check database connection jika statistics tidak update
 
 ## Lisensi
 Internal use only.

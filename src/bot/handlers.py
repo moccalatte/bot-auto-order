@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Sequence
@@ -11,6 +12,8 @@ from zoneinfo import ZoneInfo
 
 from telegram import (
     CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     Message,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
@@ -77,7 +80,6 @@ from src.services.pakasir import PakasirClient
 from src.services.stats import get_bot_statistics
 from src.services.calculator import (
     load_config,
-    save_config,
     calculate_refund,
     add_history,
     get_history,
@@ -118,6 +120,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if await _check_spam(update, context):
         return
 
+    # Upsert user to ensure they're counted in statistics
+    from src.services.users import upsert_user
+
+    await upsert_user(
+        telegram_id=user.id,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
+    )
+
+    # Send sticker first
+    await update.message.reply_sticker(
+        sticker="CAACAgIAAxkBAAIDbWkLZHuqPRCqCqmL9flozT9YJdWOAAIZUAAC4KOCB7lIn3OKexieNgQ"
+    )
+
     settings = get_settings()
     stats = await get_bot_statistics()
     categories = await list_categories()
@@ -153,11 +170,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         combined_text,
         reply_markup=keyboards.category_inline_keyboard(categories),
         parse_mode=ParseMode.HTML,
+        reply_to_message_id=update.message.message_id,
     )
 
-    # Kirim reply keyboard (admin atau customer) tanpa pesan redundant
+    # Set reply keyboard without additional message
     await update.message.reply_text(
-        "👇",  # Simple pointer emoji instead of redundant text
+        "💬",  # Simple chat icon to attach keyboard
         reply_markup=reply_keyboard,
     )
 
@@ -653,7 +671,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                         response = await save_product_snk(product_id, text, user.id)
                     reply_kwargs["reply_markup"] = ReplyKeyboardRemove()
                 elif state.action == "broadcast_message":
-                    if text.strip().lower() == "batal":
+                    if text.strip().lower() in ["batal", "❌ batal broadcast"]:
                         response = "🚫 Broadcast dibatalkan."
                     elif not text:
                         response = "⚠️ Pesan broadcast tidak boleh kosong."
@@ -732,7 +750,25 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     )
             return
 
-    # Admin menu handlers (admin keyboard shows on /start)
+    # Admin Settings - Main Entry Point
+    if text == "⚙️ Admin Settings":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
+        from src.bot.admin.admin_menu import admin_settings_menu
+
+        stats = await get_bot_statistics()
+        await update.message.reply_text(
+            f"⚙️ <b>Admin Settings</b>\n\n"
+            f"👤 Total Pengguna: <b>{stats['total_users']}</b> orang\n"
+            f"💰 Total Transaksi: <b>{stats['total_transactions']}</b>x\n\n"
+            f"Pilih menu di bawah untuk mengelola bot:",
+            reply_markup=admin_settings_menu(),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    # Admin menu handlers
     if text == "🛠 Kelola Respon Bot":
         if not is_admin:
             await update.message.reply_text("❌ Kamu tidak punya akses admin.")
@@ -740,7 +776,11 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         from src.bot.admin.admin_menu import admin_response_menu
 
         await update.message.reply_text(
-            "🛠 Kelola Respon Bot", reply_markup=admin_response_menu()
+            "🛠 <b>Kelola Respon Bot</b>\n\n"
+            "Kamu bisa mengubah template pesan yang dikirim bot.\n"
+            "Pilih aksi di bawah:",
+            reply_markup=admin_response_menu(),
+            parse_mode=ParseMode.HTML,
         )
         return
     if text == "🛒 Kelola Produk":
@@ -749,8 +789,14 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         from src.bot.admin.admin_menu import admin_product_menu
 
+        products = await list_products(limit=5)
+        product_count = len(products)
         await update.message.reply_text(
-            "🛒 Kelola Produk", reply_markup=admin_product_menu()
+            f"🛒 <b>Kelola Produk</b>\n\n"
+            f"📦 Total Produk: <b>{product_count}</b>\n\n"
+            f"Pilih aksi di bawah:",
+            reply_markup=admin_product_menu(),
+            parse_mode=ParseMode.HTML,
         )
         return
     if text == "📦 Kelola Order":
@@ -760,7 +806,11 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         from src.bot.admin.admin_menu import admin_order_menu
 
         await update.message.reply_text(
-            "📦 Kelola Order", reply_markup=admin_order_menu()
+            "📦 <b>Kelola Order</b>\n\n"
+            "Kelola pesanan customer di sini.\n"
+            "Pilih aksi di bawah:",
+            reply_markup=admin_order_menu(),
+            parse_mode=ParseMode.HTML,
         )
         return
     if text == "👥 Kelola User":
@@ -768,17 +818,31 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text("❌ Kamu tidak punya akses admin.")
             return
         from src.bot.admin.admin_menu import admin_user_menu
+        from src.services.users import list_users
 
+        users = await list_users(limit=10)
+        blocked_count = sum(1 for u in users if u.get("is_blocked", False))
         await update.message.reply_text(
-            "👥 Kelola User", reply_markup=admin_user_menu()
+            f"👥 <b>Kelola User</b>\n\n"
+            f"📊 Total User: <b>{len(users)}</b>\n"
+            f"🚫 Diblokir: <b>{blocked_count}</b>\n\n"
+            f"Pilih aksi di bawah:",
+            reply_markup=admin_user_menu(),
+            parse_mode=ParseMode.HTML,
         )
         return
     if text == "🎟️ Kelola Voucher":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
         from src.bot.admin.admin_menu import admin_voucher_menu
 
         await update.message.reply_text(
-            "🎟️ Kelola Voucher\nSetiap aksi akan dicatat di log untuk owner.",
+            "🎟️ <b>Kelola Voucher</b>\n\n"
+            "Buat dan kelola voucher diskon di sini.\n"
+            "Pilih aksi di bawah:",
             reply_markup=admin_voucher_menu(),
+            parse_mode=ParseMode.HTML,
         )
         return
     if text == "⬅️ Kembali ke Menu Utama":
@@ -807,32 +871,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "🏠 Kembali ke menu utama.", reply_markup=reply_keyboard
         )
         return
-    if text == "➕ Generate Voucher Baru":
-        if not is_admin:
-            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
-            return
-        set_admin_state(context.user_data, "generate_voucher")
-        await update.message.reply_text(
-            "➕ Format: kode|deskripsi|tipe|nilai|max_uses|valid_from|valid_until\n"
-            "Gunakan '-' untuk nilai opsional. Semua perubahan tercatat di log owner."
-        )
-        return
-    if text == "📋 Lihat Voucher Aktif":
-        if not is_admin:
-            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
-            return
-        overview = await render_voucher_overview()
-        await update.message.reply_text(overview)
-        return
-    if text == "🗑️ Nonaktifkan/Hapus Voucher":
-        if not is_admin:
-            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
-            return
-        set_admin_state(context.user_data, "delete_voucher")
-        await update.message.reply_text(
-            "🗑️ Kirim ID voucher yang akan dinonaktifkan. Aksi tercatat di log."
-        )
-        return
+
     if text == "📊 Cek Stok":
         products = await list_products(limit=10)
         lines = [
@@ -847,20 +886,107 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if not is_admin:
             await update.message.reply_text("❌ Kamu tidak punya akses admin.")
             return
+
+        # Get broadcast stats
+        targets = await list_broadcast_targets()
+        total_users = await get_bot_statistics()
+        blocked_count = total_users["total_users"] - len(targets)
+
         set_admin_state(context.user_data, "broadcast_message")
+
+        cancel_keyboard = ReplyKeyboardMarkup(
+            [["❌ Batal Broadcast"]],
+            resize_keyboard=True,
+            one_time_keyboard=True,
+        )
+
         await update.message.reply_text(
-            "📣 Mode Broadcast Aktif\n"
-            "- Kirim teks untuk broadcast ke semua user.\n"
-            "- Kirim foto dengan caption untuk broadcast bergambar.\n"
-            "Ketik BATAL untuk membatalkan.",
+            f"📣 <b>Mode Broadcast Aktif</b>\n\n"
+            f"📊 <b>Statistik:</b>\n"
+            f"👥 Total Pengguna: <b>{total_users['total_users']}</b>\n"
+            f"✅ Akan Menerima: <b>{len(targets)}</b>\n"
+            f"🚫 Diblokir: <b>{blocked_count}</b>\n\n"
+            f"📝 <b>Cara Pakai:</b>\n"
+            f"• Kirim <b>teks</b> untuk broadcast pesan\n"
+            f"• Kirim <b>foto + caption</b> untuk broadcast gambar\n\n"
+            f"Ketik <b>❌ Batal Broadcast</b> untuk membatalkan.",
+            reply_markup=cancel_keyboard,
+            parse_mode=ParseMode.HTML,
         )
         return
 
     if text == "💼 Deposit":
+        deposit_keyboard = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("💳 Deposit QRIS", callback_data="deposit:qris")],
+                [
+                    InlineKeyboardButton(
+                        "📝 Transfer Manual", callback_data="deposit:manual"
+                    )
+                ],
+            ]
+        )
+
         await update.message.reply_text(
-            "💼 Menu Deposit\n"
-            "🧾 Kamu bisa transfer manual lalu kirim bukti ke admin, atau pilih metode otomatis QRIS di menu pembayaran.\n"
-            "🤝 Saldo akan masuk setelah diverifikasi."
+            "💼 <b>Menu Deposit</b>\n\n"
+            "💰 Tambah saldo untuk transaksi lebih cepat!\n\n"
+            "<b>📝 Cara Deposit:</b>\n"
+            "• <b>QRIS:</b> Otomatis & instan\n"
+            "• <b>Transfer Manual:</b> Kirim bukti ke admin\n\n"
+            "Pilih metode di bawah:",
+            reply_markup=deposit_keyboard,
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if text == "📊 Statistik":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
+
+        stats = await get_bot_statistics()
+        users = await list_users(limit=100)
+        blocked = sum(1 for u in users if u.get("is_blocked", False))
+        products = await list_products(limit=100)
+
+        await update.message.reply_text(
+            f"📊 <b>Statistik Bot</b>\n\n"
+            f"👥 <b>Pengguna:</b>\n"
+            f"• Total: <b>{stats['total_users']}</b> orang\n"
+            f"• Diblokir: <b>{blocked}</b> orang\n"
+            f"• Aktif: <b>{stats['total_users'] - blocked}</b> orang\n\n"
+            f"💰 <b>Transaksi:</b>\n"
+            f"• Total: <b>{stats['total_transactions']}</b>x\n\n"
+            f"📦 <b>Produk:</b>\n"
+            f"• Total: <b>{len(products)}</b> item\n",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    # Handle cancel buttons
+    if text in ["❌ Batal", "❌ Batal Broadcast"]:
+        clear_admin_state(context.user_data)
+        from src.bot.admin.admin_menu import admin_settings_menu
+
+        await update.message.reply_text(
+            "✅ <b>Dibatalkan.</b>\n\nKembali ke menu admin.",
+            reply_markup=admin_settings_menu(),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if text == "⬅️ Kembali":
+        from src.bot.admin.admin_menu import admin_settings_menu
+
+        stats = await get_bot_statistics()
+
+        await update.message.reply_text(
+            f"⚙️ <b>Admin Settings</b>\n\n"
+            f"👤 Total Pengguna: <b>{stats['total_users']}</b> orang\n"
+            f"💰 Total Transaksi: <b>{stats['total_transactions']}</b>x\n\n"
+            f"Pilih menu di bawah:",
+            reply_markup=admin_settings_menu(),
+            parse_mode=ParseMode.HTML,
         )
         return
 
@@ -869,17 +995,56 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if not is_admin:
             await update.message.reply_text("❌ Kamu tidak punya akses admin.")
             return
-        # Kirim rumus refund dari calcu.md
-        try:
-            with open("calcu.md", "r") as f:
-                calcu_text = f.read()
-        except Exception:
-            calcu_text = "Rumus refund tidak tersedia. Silakan cek dengan admin atau lihat file calcu.md."
+
+        calc_keyboard = ReplyKeyboardMarkup(
+            [
+                ["🔢 Hitung Refund"],
+                ["⚙️ Atur Formula"],
+                ["📜 Riwayat Kalkulasi"],
+                ["⬅️ Kembali"],
+            ],
+            resize_keyboard=True,
+        )
+
         await update.message.reply_text(
-            f"🧮 Kalkulator Refund\n\n{calcu_text}\n\n"
-            "Kamu bisa hitung refund dengan rumus di atas.\n"
-            "Untuk custom, admin bisa gunakan command /set_calculator.\n"
-            "Untuk kalkulasi otomatis, gunakan /refund_calculator."
+            "🧮 <b>Kalkulator Refund</b>\n\n"
+            "💡 <b>Fungsi:</b>\n"
+            "• Hitung refund otomatis berdasarkan sisa hari\n"
+            "• Atur formula kustom untuk perhitungan\n"
+            "• Lihat riwayat kalkulasi sebelumnya\n\n"
+            "Pilih menu di bawah:",
+            reply_markup=calc_keyboard,
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if text == "🔢 Hitung Refund":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
+        await update.message.reply_text(
+            "Gunakan command: <code>/refund_calculator</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if text == "⚙️ Atur Formula":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
+        await update.message.reply_text(
+            "Gunakan command: <code>/set_calculator</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if text == "📜 Riwayat Kalkulasi":
+        if not is_admin:
+            await update.message.reply_text("❌ Kamu tidak punya akses admin.")
+            return
+        await update.message.reply_text(
+            "Gunakan command: <code>/refund_history</code>",
+            parse_mode=ParseMode.HTML,
         )
         return
 
@@ -991,25 +1156,35 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             admin_product_menu,
             admin_order_menu,
             admin_user_menu,
-            admin_main_menu,
         )
 
         if data == "admin:back":
+            from src.bot.admin.admin_menu import admin_settings_menu
+
+            stats = await get_bot_statistics()
             await update.effective_message.reply_text(
-                "⚙️ Admin Settings:\nSilakan pilih aksi di bawah.",
-                reply_markup=admin_main_menu(),
+                f"⚙️ <b>Admin Settings</b>\n\n"
+                f"👤 Total Pengguna: <b>{stats['total_users']}</b> orang\n"
+                f"💰 Total Transaksi: <b>{stats['total_transactions']}</b>x\n\n"
+                f"Pilih menu di bawah:",
+                reply_markup=admin_settings_menu(),
+                parse_mode=ParseMode.HTML,
             )
             return
         elif data == "admin:preview_responses":
-            config_mgr = context.bot_data.get("custom_config_mgr")
-            order_msg = (
-                await config_mgr.get_config("order_created") if config_mgr else None
-            )
-            payment_msg = (
-                await config_mgr.get_config("payment_success") if config_mgr else None
-            )
             await update.effective_message.reply_text(
-                f"👁️ Preview Respon:\nOrder Masuk: {order_msg}\nPembayaran Sukses: {payment_msg}"
+                "👁️ <b>Preview Template Messages</b>\n\n"
+                "<b>🌟 Welcome Message:</b>\n"
+                "Hai {nama}! Selamat datang di {store_name}!\n\n"
+                "<b>🎉 Payment Success:</b>\n"
+                "Pembayaran berhasil untuk order {order_id}!\n\n"
+                "<b>⚠️ Error Message:</b>\n"
+                "Maaf, terjadi kesalahan. Coba lagi ya!\n\n"
+                "<b>📦 Product Message:</b>\n"
+                "Produk: {nama_produk}\n"
+                "Harga: {harga}\n"
+                "Stok: {stok}x",
+                parse_mode=ParseMode.HTML,
             )
             return
         elif data == "admin:add_product":
@@ -1067,6 +1242,117 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             set_admin_state(context.user_data, "unblock_user", unblock=True)
             await update.effective_message.reply_text(
                 "✅ Kirim ID user yang ingin di-unblokir."
+            )
+            return
+        elif data == "admin:generate_voucher":
+            set_admin_state(context.user_data, "generate_voucher")
+            cancel_keyboard = ReplyKeyboardMarkup(
+                [["❌ Batal"]],
+                resize_keyboard=True,
+                one_time_keyboard=True,
+            )
+            await update.effective_message.reply_text(
+                "➕ <b>Buat Voucher Baru</b>\n\n"
+                "Kirim format sederhana:\n"
+                "<code>KODE | NOMINAL | BATAS_PAKAI</code>\n\n"
+                "📝 Contoh:\n"
+                "<code>HEMAT10 | 10% | 100</code>\n"
+                "<code>DISKON5K | 5000 | 50</code>\n\n"
+                "Ketik <b>❌ Batal</b> untuk membatalkan.",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data == "admin:list_vouchers":
+            overview = await render_voucher_overview()
+            await update.effective_message.reply_text(overview)
+            return
+        elif data == "admin:delete_voucher":
+            set_admin_state(context.user_data, "delete_voucher")
+            cancel_keyboard = ReplyKeyboardMarkup(
+                [["❌ Batal"]],
+                resize_keyboard=True,
+                one_time_keyboard=True,
+            )
+            await update.effective_message.reply_text(
+                "🗑️ <b>Nonaktifkan Voucher</b>\n\n"
+                "Kirim <b>ID voucher</b> yang ingin dinonaktifkan.\n\n"
+                "Ketik <b>❌ Batal</b> untuk membatalkan.",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data == "admin:edit_welcome":
+            set_admin_state(context.user_data, "edit_welcome_message")
+            cancel_keyboard = ReplyKeyboardMarkup(
+                [["❌ Batal"]],
+                resize_keyboard=True,
+                one_time_keyboard=True,
+            )
+            await update.effective_message.reply_text(
+                "🌟 <b>Edit Welcome Message</b>\n\n"
+                "Kirim pesan welcome baru kamu.\n"
+                "Bisa kirim <b>teks biasa</b> atau <b>foto dengan caption</b>.\n\n"
+                "💡 Placeholder yang bisa dipakai:\n"
+                "• <code>{nama}</code> - Nama user\n"
+                "• <code>{store_name}</code> - Nama toko\n"
+                "• <code>{total_users}</code> - Total pengguna\n\n"
+                "Ketik <b>❌ Batal</b> untuk membatalkan.",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data == "admin:edit_payment_success":
+            set_admin_state(context.user_data, "edit_payment_success")
+            cancel_keyboard = ReplyKeyboardMarkup(
+                [["❌ Batal"]],
+                resize_keyboard=True,
+                one_time_keyboard=True,
+            )
+            await update.effective_message.reply_text(
+                "🎉 <b>Edit Payment Success Message</b>\n\n"
+                "Kirim pesan sukses pembayaran baru.\n"
+                "Bisa kirim <b>teks biasa</b> atau <b>foto dengan caption</b>.\n\n"
+                "💡 Placeholder:\n"
+                "• <code>{order_id}</code> - ID Order\n"
+                "• <code>{nama}</code> - Nama pembeli\n\n"
+                "Ketik <b>❌ Batal</b> untuk membatalkan.",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data == "admin:edit_error":
+            set_admin_state(context.user_data, "edit_error_message")
+            cancel_keyboard = ReplyKeyboardMarkup(
+                [["❌ Batal"]],
+                resize_keyboard=True,
+                one_time_keyboard=True,
+            )
+            await update.effective_message.reply_text(
+                "⚠️ <b>Edit Error Message</b>\n\n"
+                "Kirim pesan error baru yang akan ditampilkan saat ada masalah.\n\n"
+                "Ketik <b>❌ Batal</b> untuk membatalkan.",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data == "admin:edit_product":
+            set_admin_state(context.user_data, "edit_product_message")
+            cancel_keyboard = ReplyKeyboardMarkup(
+                [["❌ Batal"]],
+                resize_keyboard=True,
+                one_time_keyboard=True,
+            )
+            await update.effective_message.reply_text(
+                "📦 <b>Edit Product Message Template</b>\n\n"
+                "Kirim template pesan produk baru.\n\n"
+                "💡 Placeholder:\n"
+                "• <code>{nama_produk}</code> - Nama produk\n"
+                "• <code>{harga}</code> - Harga produk\n"
+                "• <code>{stok}</code> - Stok tersedia\n\n"
+                "Ketik <b>❌ Batal</b> untuk membatalkan.",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
             )
             return
         # Submenu navigation
@@ -1574,7 +1860,7 @@ async def refund_history_command(
     await update.message.reply_text(reply)
 
 
-def register(application: Application) -> None:
+def register_admin_handlers(application: Application) -> None:
     """Register command, callback, and text handlers."""
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(callback_router))

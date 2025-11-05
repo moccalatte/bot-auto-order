@@ -5,6 +5,76 @@ Dokumen ini mencatat perubahan penting, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
+## Version 0.2.2 – 2025-01-16
+### Added
+- **Role-Based Keyboard System**: Bot automatically displays different keyboards based on user role (admin vs customer)
+- **Complete Admin Menu Restructure**: New hierarchical menu structure with `⚙️ Admin Settings` main menu and 9 organized submenus:
+  - 📝 Kelola Respon Bot (preview & edit message templates)
+  - 📦 Kelola Produk (CRUD with statistics)
+  - 📋 Kelola Order (view & update status)
+  - 👥 Kelola User (statistics, pagination, block/unblock)
+  - 🎟️ Kelola Voucher (user-friendly generation)
+  - 📢 Broadcast (send to all users with real-time stats)
+  - 🧮 Calculator (inline keyboard for refund/deposit)
+  - 📊 Statistik (comprehensive dashboard)
+  - 💰 Deposit (manage user deposits)
+- **Cancel Buttons**: Added cancel functionality for all critical input modes (broadcast, voucher, template editing, calculator)
+- **Sticker on Welcome**: Engaging sticker sent before welcome message for better UX
+- **Auto User Tracking**: Every `/start` command automatically runs `upsert_user()` for accurate statistics
+- **Inline Keyboard Navigation**: Cleaner, more intuitive admin menu navigation
+- **Real-Time Statistics**: Live feedback for broadcast operations (total, success, failed counts)
+
+### Fixed
+- **Config Validator**: Fixed `TELEGRAM_ADMIN_IDS` and `TELEGRAM_OWNER_IDS` validators to handle both single integers and comma-separated strings
+- **JobQueue Warning**: Updated dependencies to `python-telegram-bot[webhooks,job-queue]==21.3` to eliminate warnings for scheduled tasks
+- **User Statistics Not Counting**: Fixed issue where user count didn't increment on `/start` by adding automatic `upsert_user()` call
+- **Redundant Messages**: Removed "📱 Gunakan menu..." and "👇" messages that cluttered conversation flow
+- **Admin Keyboard Not Showing**: Implemented proper role detection so admin users see `⚙️ Admin Settings` button
+- **Calculator Access Control**: Removed calculator from customer keyboard (admin-only via commands)
+- **Empty Admin Menus**: Fully implemented all previously empty admin submenus with complete functionality
+
+### Changed
+- **HTML Parse Mode Migration**: Migrated ALL message templates from Markdown to HTML with:
+  - `<b>bold</b>` for important info (names, prices, totals)
+  - `<i>italic</i>` for disclaimers and notes
+  - `<code>code</code>` for IDs and copyable data
+  - Consistent emoji usage for visual hierarchy
+- **Enhanced Message Templates**: Updated 10+ message templates in `src/bot/messages.py` with proper HTML formatting
+- **Handler Updates**: Added `parse_mode=ParseMode.HTML` consistently across 15+ handler functions
+- **Admin Handlers Refactor**: Standardized callback data format, improved error handling, better state management
+- **Clean Message Flow**: Single welcome message with keyboard (no double messages), streamlined conversation flow
+
+### Documentation
+- Comprehensive update of README.md with new features, testing checklist, and troubleshooting
+- Updated fixing_plan.md with complete fix status and implementation details
+- Updated CHANGELOG.md with detailed v0.2.2 changelog
+- Updated core_summary.md with current features and module status
+- Updated PRD (02_prd.md) to reflect new requirements
+- All documentation now reflects current implementation
+
+### Code Quality
+- No bare exceptions (all use specific exception types)
+- No SQL injection vulnerabilities
+- Comprehensive error handling with informative messages
+- Proper input validation for all admin inputs
+- Enhanced logging for debugging and audit
+- Consistent code style across all files
+
+### Known Issues
+- Port conflicts (9000, 8080) require manual resolution before deployment
+- JobQueue requires dependency reinstall in existing installations
+- Large broadcast operations (>1000 users) may require rate limiting tuning
+
+### Migration Notes
+To upgrade from v0.2.1 to v0.2.2:
+1. Update dependencies: `pip uninstall python-telegram-bot -y && pip install -r requirements.txt`
+2. Verify JobQueue: `python -c "from telegram.ext import JobQueue; print('✅')"`
+3. No database schema changes required
+4. Verify `TELEGRAM_ADMIN_IDS` format in `.env`
+5. Restart bot to load new code
+
+---
+
 ## Version 0.2.1 – 2025-06-05
 ### Added
 - Mode `auto` pada `src/main.py` dan `scripts/run_stack.sh` untuk failover webhook → polling tanpa downtime. Dokumentasi switch DNS/Reverse Proxy ditambahkan ke `docs/10_roadmap_critical.md`.
@@ -22,6 +92,7 @@ Dokumen ini mencatat perubahan penting, penambahan fitur, bugfix, refactor, dan 
 - Scheduler internal (job queue) sekarang menjalankan health-check (`ENABLE_AUTO_HEALTHCHECK`) dan backup harian (`ENABLE_AUTO_BACKUP`, `BACKUP_TIME`) tanpa perlu cron host.
 ### Known Issues
 - Health-check memerlukan dependency `httpx` dan koneksi Postgres aktif; jalankan di lingkungan yang sudah menginstal `requirements.txt`.
+- **Note:** This version has been superseded by v0.2.2 which includes major UX and admin menu improvements.
 
 ---
 

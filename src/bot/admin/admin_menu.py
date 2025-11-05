@@ -32,14 +32,23 @@ def save_admin_config(user_id: int, config: Dict[str, Any]) -> None:
 
 
 def admin_main_menu() -> ReplyKeyboardMarkup:
-    """Menu utama admin: ⚙️ Admin Settings (hanya untuk admin)."""
+    """Menu utama admin dengan akses customer + admin features."""
     keyboard = [
         ["📋 List Produk", "📦 Semua Produk"],
         ["📊 Cek Stok", "💼 Deposit"],
+        ["⚙️ Admin Settings"],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+
+def admin_settings_menu() -> ReplyKeyboardMarkup:
+    """Submenu Admin Settings dengan semua fitur admin."""
+    keyboard = [
         ["🛠 Kelola Respon Bot", "🛒 Kelola Produk"],
         ["📦 Kelola Order", "👥 Kelola User"],
         ["🎟️ Kelola Voucher", "📣 Broadcast Pesan"],
-        ["🧮 Calculator"],
+        ["🧮 Calculator", "📊 Statistik"],
+        ["⬅️ Kembali ke Menu Utama"],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -49,7 +58,27 @@ def admin_response_menu() -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton(
-                "👁️ Preview Semua Respon", callback_data="admin:preview_responses"
+                "🌟 Edit Welcome Message", callback_data="admin:edit_welcome"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🎉 Edit Payment Success", callback_data="admin:edit_payment_success"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "⚠️ Edit Error Message", callback_data="admin:edit_error"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📦 Edit Product Message", callback_data="admin:edit_product"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "👁️ Preview Semua Template", callback_data="admin:preview_responses"
             )
         ],
         [InlineKeyboardButton("⬅️ Kembali", callback_data="admin:back")],
@@ -102,15 +131,27 @@ def admin_user_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 
-def admin_voucher_menu() -> ReplyKeyboardMarkup:
+def admin_voucher_menu() -> InlineKeyboardMarkup:
     """Submenu untuk Kelola Voucher dengan pencatatan log."""
-    keyboard = [
-        ["➕ Generate Voucher Baru"],
-        ["📋 Lihat Voucher Aktif"],
-        ["🗑️ Nonaktifkan/Hapus Voucher"],
-        ["⬅️ Kembali ke Admin Settings"],
+    buttons = [
+        [
+            InlineKeyboardButton(
+                "➕ Generate Voucher Baru", callback_data="admin:generate_voucher"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📋 Lihat Voucher Aktif", callback_data="admin:list_vouchers"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🗑️ Nonaktifkan Voucher", callback_data="admin:delete_voucher"
+            )
+        ],
+        [InlineKeyboardButton("⬅️ Kembali", callback_data="admin:back")],
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    return InlineKeyboardMarkup(buttons)
 
 
 async def handle_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

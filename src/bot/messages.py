@@ -21,7 +21,7 @@ def welcome_message(
         f"🌟 Hai, <b>{mention}</b>! 👋🏻\n\n"
         f"🎪 Selamat datang di <b>{store_name}</b> 🎉\n\n"
         f"📊 <b>Statistik Kami:</b>\n"
-        f"🙍🏻‍♂️ Total Sahabat Bot: <b>{total_users:,}</b> orang\n"
+        f"🙍🏻‍♂️ Total Pengguna Bot: <b>{total_users:,}</b> orang\n"
         f"💼 Transaksi Tuntas: <b>{total_transactions:,}</b>x\n\n"
         "🛒 Silakan pilih kategori atau gunakan tombol di bawah untuk jelajahi katalog kami!"
     )
