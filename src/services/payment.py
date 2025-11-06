@@ -6,7 +6,7 @@ import logging
 import asyncio
 from datetime import datetime, timezone
 from typing import Dict, Tuple
-from uuid import uuid4
+from uuid import uuid4, UUID
 
 from src.core.audit import audit_log
 from src.core.telemetry import TelemetryTracker
@@ -23,6 +23,11 @@ from src.services.deposit import (
     create_deposit,
     get_deposit_by_gateway,
     update_deposit_status,
+)
+from src.services.product_content import (
+    get_available_content,
+    mark_content_as_used,
+    get_order_contents,
 )
 
 
@@ -111,6 +116,7 @@ class PaymentService:
         )
 
         total_cents = cart.total_cents()
+        # Calculate fee for display only - Pakasir will add it automatically
         fee_cents = calculate_gateway_fee(total_cents) if method != "deposit" else 0
         payable_cents = total_cents + fee_cents
         gateway_order_id = f"tg{telegram_user['id']}-{uuid4().hex[:8]}"
@@ -182,10 +188,11 @@ class PaymentService:
             }
         else:
             try:
+                # Send only total_cents to Pakasir - they will add the fee automatically
                 pakasir_response = await self._pakasir_client.create_transaction(
                     method,
                     gateway_order_id,
-                    payable_cents,
+                    total_cents,
                 )
             except Exception as exc:  # pragma: no cover - network failure
                 await self._register_failure(str(exc))
@@ -233,7 +240,7 @@ class PaymentService:
             "payable_cents": payable_cents,
             "payment": payment_payload,
             "payment_url": self._pakasir_client.build_payment_url(
-                gateway_order_id, payable_cents
+                gateway_order_id, total_cents
             ),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -243,11 +250,14 @@ class PaymentService:
         *,
         telegram_user: Dict[str, str | int | None],
         amount_cents: int,
+    async def create_deposit_invoice(
+        self, telegram_user: Dict[str, str | int | None], amount_cents: int
     ) -> Tuple[str, Dict[str, object]]:
-        """Create QRIS invoice for balance top-up."""
+        """Create QRIS deposit invoice."""
         if amount_cents <= 0:
-            raise PaymentError("Nominal deposit harus lebih dari 0.")
+            raise PaymentError("Deposit amount must be greater than zero.")
 
+        logger.info("💰 Creating deposit for user %s", telegram_user.get("id"))
         user_id = await upsert_user(
             telegram_id=int(telegram_user["id"]),
             username=telegram_user.get("username"),
@@ -255,15 +265,17 @@ class PaymentService:
             last_name=telegram_user.get("last_name"),
         )
 
+        # Calculate fee for display only - Pakasir will add it automatically
         fee_cents = calculate_gateway_fee(amount_cents)
         payable_cents = amount_cents + fee_cents
         gateway_order_id = f"dp{telegram_user['id']}-{uuid4().hex[:8]}"
 
         try:
+            # Send only amount_cents to Pakasir - they will add the fee automatically
             pakasir_response = await self._pakasir_client.create_transaction(
                 "qris",
                 gateway_order_id,
-                payable_cents,
+                amount_cents,
             )
         except Exception as exc:  # pragma: no cover - network failure
             await self._register_failure(str(exc))
@@ -292,7 +304,7 @@ class PaymentService:
             "payable_cents": payable_cents,
             "payment": payment_payload,
             "payment_url": self._pakasir_client.build_payment_url(
-                gateway_order_id, payable_cents
+                gateway_order_id, amount_cents
             ),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "expires_at": payment_payload.get("expired_at"),
@@ -379,7 +391,7 @@ class PaymentService:
                     order_id,
                 )
 
-                # Deduct stock only when payment is completed successfully
+                # Allocate product contents for the order
                 order_items = await connection.fetch(
                     """
                     SELECT product_id, quantity
@@ -388,23 +400,52 @@ class PaymentService:
                     """,
                     order_id,
                 )
-                for item in order_items:
-                    update_result = await connection.execute(
-                        """
-                        UPDATE products
-                        SET stock = stock - $2,
-                            updated_at = NOW()
-                        WHERE id = $1 AND stock >= $2;
-                        """,
-                        item["product_id"],
-                        item["quantity"],
+
+                # Process outside transaction to avoid deadlocks
+                pass  # Content allocation will happen after transaction
+
+        # Allocate product contents after transaction completes
+        pool = await get_pool()
+        async with pool.acquire() as connection:
+            for item in order_items:
+                product_id = item["product_id"]
+                quantity = item["quantity"]
+
+                # Get available contents for this product
+                available_contents = await get_available_content(product_id, quantity)
+
+                if len(available_contents) < quantity:
+                    logger.error(
+                        "[stock_error] Insufficient content stock for product %s. "
+                        "Required: %s, Available: %s for order %s",
+                        product_id,
+                        quantity,
+                        len(available_contents),
+                        order_id,
                     )
-                    if update_result == "UPDATE 0":
-                        logger.error(
-                            "[stock_error] Insufficient stock for product %s during payment completion for order %s",
-                            item["product_id"],
-                            order_id,
-                        )
+                    # Still mark what we have as used
+                    for content in available_contents:
+                        await mark_content_as_used(content["id"], UUID(str(order_id)))
+                else:
+                    # Mark all required contents as used
+                    for content in available_contents:
+                        await mark_content_as_used(content["id"], UUID(str(order_id)))
+
+                # Increment sold count for product
+                await connection.execute(
+                    """
+                    UPDATE products
+                    SET sold_count = sold_count + $2,
+                        updated_at = NOW()
+                    WHERE id = $1;
+                    """,
+                    product_id,
+                    quantity,
+                )
+
+        # Send product contents to customer
+        await self._send_product_contents_to_customer(str(order_id))
+
         await schedule_terms_notifications(str(order_id))
         await self._telemetry.increment("successful_transactions")
         logger.info(
@@ -422,6 +463,9 @@ class PaymentService:
             },
         )
         await delete_payment_messages(gateway_order_id)
+
+        # Notify admins about successful payment
+        await self._notify_admins_payment_success(gateway_order_id, str(order_id))
 
     async def mark_payment_failed(self, gateway_order_id: str) -> None:
         """Mark payment as failed/expired."""
@@ -505,6 +549,247 @@ class PaymentService:
             },
         )
 
+    async def _send_product_contents_to_customer(self, order_id: str) -> None:
+        """Send product contents and SNK to customer after successful payment."""
+        try:
+            from telegram import Bot
+            from telegram.constants import ParseMode
+            from src.core.config import get_settings
+
+            settings = get_settings()
+            bot = Bot(token=settings.telegram_bot_token)
+
+            # Get order and user details
+            pool = await get_pool()
+            async with pool.acquire() as connection:
+                order_data = await connection.fetchrow(
+                    """
+                    SELECT o.id, u.telegram_id, u.first_name
+                    FROM orders o
+                    JOIN users u ON o.user_id = u.id
+                    WHERE o.id = $1;
+                    """,
+                    order_id,
+                )
+
+                if not order_data:
+                    logger.error("[product_delivery] Order %s not found", order_id)
+                    return
+
+                telegram_id = order_data["telegram_id"]
+                customer_name = order_data["first_name"] or "Customer"
+
+                # Get product contents for this order
+                contents = await get_order_contents(UUID(order_id))
+
+                if not contents:
+                    logger.warning("[product_delivery] No contents found for order %s", order_id)
+                    return
+
+                # Build message with all product contents
+                message_parts = [
+                    f"🎉 <b>Pembayaran Berhasil, {customer_name}!</b>\n",
+                    "✅ Terima kasih sudah berbelanja di toko kami.\n",
+                    f"📦 <b>Order ID:</b> <code>{order_id}</code>\n\n",
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                ]
+
+                for idx, content_data in enumerate(contents, 1):
+                    product_name = content_data["product_name"]
+                    content_text = content_data["content"]
+
+                    message_parts.append(f"📦 <b>Produk {idx}: {product_name}</b>\n")
+                    message_parts.append(f"<pre>{content_text}</pre>\n")
+                    message_parts.append("━━━━━━━━━━━━━━━━━━━━\n")
+
+                # Check if products have SNK
+                snk_rows = await connection.fetch(
+                    """
+                    SELECT DISTINCT pt.content
+                    FROM order_items oi
+                    JOIN product_terms pt ON pt.product_id = oi.product_id
+                    WHERE oi.order_id = $1;
+                    """,
+                    order_id,
+                )
+
+                if snk_rows:
+                    message_parts.append("\n📜 <b>Syarat & Ketentuan:</b>\n")
+                    for snk_row in snk_rows:
+                        message_parts.append(f"{snk_row['content']}\n")
+                    message_parts.append("\n⚠️ <b>WAJIB BACA DAN IKUTI S&K DI ATAS!</b>\n")
+
+                message_parts.append("\n💬 Jika ada kendala, hubungi admin ya. Terima kasih! 😊")
+
+                full_message = "".join(message_parts)
+
+                # Send to customer
+                await bot.send_message(
+                    chat_id=telegram_id,
+                    text=full_message,
+                    parse_mode=ParseMode.HTML,
+                )
+
+                logger.info(
+                    "[product_delivery] Sent %d product contents to user %s for order %s",
+                    len(contents),
+                    telegram_id,
+                    order_id,
+                )
+
+        except Exception as exc:
+            logger.error(
+                "[product_delivery] Failed to send contents for order %s: %s",
+                order_id,
+                exc,
+                exc_info=True,
+            )
+
+    async def _notify_admins_payment_success(
+        self, gateway_order_id: str, order_id: str
+    ) -> None:
+        """Send notification to admins when order payment is successful."""
+        try:
+            from telegram import Bot
+            from telegram.constants import ParseMode
+            from src.core.config import get_settings
+            from src.core.currency import format_rupiah
+
+            settings = get_settings()
+            bot = Bot(token=settings.telegram_bot_token)
+
+            # Get order details
+            pool = await get_pool()
+            async with pool.acquire() as connection:
+                order_data = await connection.fetchrow(
+                    """
+                    SELECT
+                        o.total_price_cents,
+                        u.telegram_id,
+                        u.username,
+                        u.first_name,
+                        u.last_name
+                    FROM orders o
+                    JOIN users u ON o.user_id = u.id
+                    WHERE o.id = $1;
+                    """,
+                    order_id,
+                )
+
+                if not order_data:
+                    return
+
+                # Get order items
+                order_items = await connection.fetch(
+                    """
+                    SELECT
+                        oi.quantity,
+                        p.name
+                    FROM order_items oi
+                    JOIN products p ON oi.product_id = p.id
+                    WHERE oi.order_id = $1;
+                    """,
+                    order_id,
+                )
+
+            customer_name = order_data["first_name"] or order_data["username"] or "Customer"
+            username = f"@{order_data['username']}" if order_data["username"] else "-"
+            telegram_id = order_data["telegram_id"]
+            total_text = format_rupiah(order_data["total_price_cents"])
+
+            products_list = ", ".join([f"{item['quantity']}x {item['name']}" for item in order_items])
+
+            message_text = (
+                f"✅ <b>Pembayaran Berhasil!</b>\n\n"
+                f"<b>Customer:</b> {customer_name}\n"
+                f"<b>ID Telegram:</b> {telegram_id}\n"
+                f"<b>Username:</b> {username}\n"
+                f"<b>Produk:</b> {products_list}\n"
+                f"<b>Total:</b> {total_text}\n"
+                f"<b>Gateway ID:</b> <code>{gateway_order_id}</code>\n"
+                f"<b>Order ID:</b> <code>{order_id}</code>\n\n"
+                "📦 <b>Pesanan sudah diproses dan produk dikirim ke customer.</b>"
+            )
+
+            # Send to all admins
+            admin_ids = settings.telegram_admin_ids + settings.telegram_owner_ids
+            for admin_id in admin_ids:
+                try:
+                    await bot.send_message(
+                        chat_id=admin_id,
+                        text=message_text,
+                        parse_mode=ParseMode.HTML,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[payment_success_notif] Failed to notify admin %s: %s",
+                        admin_id,
+                        exc,
+                    )
+        except Exception as exc:
+            logger.error("[payment_success_notif] Error sending notification: %s", exc)
+
+    async def _notify_admins_deposit_success(
+        self, gateway_order_id: str, deposit_id: int, user_telegram_id: int, amount_cents: int
+    ) -> None:
+        """Send notification to admins when deposit is successful."""
+        try:
+            from telegram import Bot
+            from telegram.constants import ParseMode
+            from src.core.config import get_settings
+            from src.core.currency import format_rupiah
+
+            settings = get_settings()
+            bot = Bot(token=settings.telegram_bot_token)
+
+            # Get user details
+            pool = await get_pool()
+            async with pool.acquire() as connection:
+                user_data = await connection.fetchrow(
+                    """
+                    SELECT username, first_name, last_name
+                    FROM users
+                    WHERE telegram_id = $1;
+                    """,
+                    user_telegram_id,
+                )
+
+            if not user_data:
+                return
+
+            customer_name = user_data["first_name"] or user_data["username"] or "Customer"
+            username = f"@{user_data['username']}" if user_data["username"] else "-"
+            amount_text = format_rupiah(amount_cents)
+
+            message_text = (
+                f"✅ <b>Deposit Berhasil!</b>\n\n"
+                f"<b>Customer:</b> {customer_name}\n"
+                f"<b>ID Telegram:</b> {user_telegram_id}\n"
+                f"<b>Username:</b> {username}\n"
+                f"<b>Nominal:</b> {amount_text}\n"
+                f"<b>Gateway ID:</b> <code>{gateway_order_id}</code>\n"
+                f"<b>Deposit ID:</b> {deposit_id}\n\n"
+                "💰 <b>Saldo customer sudah ditambahkan.</b>"
+            )
+
+            # Send to all admins
+            admin_ids = settings.telegram_admin_ids + settings.telegram_owner_ids
+            for admin_id in admin_ids:
+                try:
+                    await bot.send_message(
+                        chat_id=admin_id,
+                        text=message_text,
+                        parse_mode=ParseMode.HTML,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[deposit_success_notif] Failed to notify admin %s: %s",
+                        admin_id,
+                        exc,
+                    )
+        except Exception as exc:
+            logger.error("[deposit_success_notif] Error sending notification: %s", exc)
+
     async def mark_deposit_completed(
         self, gateway_order_id: str, amount_cents: int
     ) -> Dict[str, Any]:
@@ -552,6 +837,15 @@ class PaymentService:
             },
         )
         await delete_payment_messages(gateway_order_id)
+
+        # Notify admins about successful deposit
+        await self._notify_admins_deposit_success(
+            gateway_order_id,
+            int(updated["id"]),
+            int(updated["user_id"]),
+            credit_amount
+        )
+
         return updated
 
     async def mark_deposit_failed(self, gateway_order_id: str) -> None:

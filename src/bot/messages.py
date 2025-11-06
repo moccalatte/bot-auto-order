@@ -21,11 +21,10 @@ def welcome_message(
     transactions_text = f"{total_transactions:,}".replace(",", ".")
     return (
         f"<b>—  Hai, {mention}</b> 👋🏻\n\n"
-        f"🎪 Selamat datang di <b>{store_name}</b> 🎉\n"
+        f"Selamat datang di <b>{store_name}!</b>\n"
         f"🙍🏻‍♂️ <b>Total Pengguna Bot: {users_text} orang</b>\n"
         f"🎯 <b>Transaksi Tuntas: {transactions_text}x</b>\n\n"
-        "🛒 Silakan pilih kategori atau gunakan tombol di bawah untuk jelajahi katalog kami!\n\n"
-        "⌨️ Menu utama tersedia di keyboard bawah. Pilih angka atau menu yang kamu butuhkan ya!"
+        "🛒 Silakan gunakan tombol di bawah untuk jelajahi katalog kami!"
     )
 
 
@@ -116,7 +115,7 @@ def payment_prompt(
         "",
         "💳 <b>Informasi Tagihan</b>",
         f"— Total Harga: <b>{subtotal_rp}</b>",
-        f"— Biaya Layanan Pakasir: <b>{fee_rp}</b>",
+        f"— Biaya Layanan: <b>{fee_rp}</b>",
         f"— Total Dibayar: <b>{payable_rp}</b>",
         f"— Date Created: {datetime.now().strftime('%d/%m/%y')}",
         "",
@@ -150,7 +149,7 @@ def payment_invoice_detail(
         f"🏷️ <b>Invoice Berhasil Dibuat</b>\n<code>{invoice_id}</code>\n\n"
         "🛍️ <b>Informasi Item:</b>\n"
         f"— Total Harga: <b>{subtotal_rp}</b>\n"
-        f"— Biaya Layanan Pakasir: <b>{fee_rp}</b>\n"
+        f"— Biaya Layanan: <b>{fee_rp}</b>\n"
         f"— Jumlah Item: <b>{len(items)}x</b>\n"
         f"— List Yang Dibeli:\n{items_block}\n\n"
         "💰 <b>Informasi Pembayaran:</b>\n"
@@ -175,7 +174,7 @@ def deposit_invoice_detail(
         f"💼 <b>Deposit QRIS Dibuat</b>\n<code>{invoice_id}</code>\n\n"
         "💰 <b>Nominal Deposit:</b> "
         f"<b>{amount_rp}</b>\n"
-        f"💸 <b>Biaya Layanan Pakasir:</b> <b>{fee_rp}</b>\n"
+        f"💸 <b>Biaya Layanan:</b> <b>{fee_rp}</b>\n"
         f"💳 <b>Total Dibayar:</b> <b>{payable_rp}</b>\n"
         f"📅 <b>Tanggal Dibuat:</b> {created_at}\n"
         f"⏰ <b>Expired In:</b> {expires_in}\n\n"

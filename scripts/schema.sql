@@ -37,6 +37,16 @@ CREATE TABLE IF NOT EXISTS products (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS product_contents (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    is_used BOOLEAN DEFAULT FALSE,
+    used_by_order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    used_at TIMESTAMP WITH TIME ZONE
+);
+
 CREATE TABLE IF NOT EXISTS reply_templates (
     id SERIAL PRIMARY KEY,
     label TEXT NOT NULL UNIQUE,
@@ -119,5 +129,7 @@ CREATE TABLE IF NOT EXISTS telemetry_daily (
 );
 
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
+CREATE INDEX IF NOT EXISTS idx_product_contents_product ON product_contents(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_contents_unused ON product_contents(product_id, is_used) WHERE is_used = FALSE;
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_payments_gateway ON payments(gateway_order_id);

@@ -2,7 +2,7 @@
 
 Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui Pakasir, serta fitur kustomisasi menu dan respon bot oleh admin langsung dari Telegram.
 
-> **Status:** ✅ Production Ready | **Version:** 0.5.4 | **Last Updated:** 2025-11-06
+> **Status:** ✅ Production Ready | **Version:** 0.6.0 | **Last Updated:** 2025-01-XX
 
 ## Struktur Proyek
 - `src/`
@@ -20,18 +20,43 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
 - `.gitignore` – aturan berkas yang diabaikan Git.
 
 ## Fitur Utama
+
+### 🆕 v0.6.0 - Product Content System & Critical Fixes
+- **Product Content-Based Inventory** 🎯: Sistem stok berbasis konten digital yang revolusioner
+  - Stok = jumlah actual content yang tersedia (bukan angka manual)
+  - Admin upload content (email, password, code, dll) untuk setiap unit produk
+  - Customer **otomatis menerima content produk** setelah pembayaran sukses
+  - Tidak perlu kirim manual via chat - fully automated delivery
+  - Full audit trail: siapa dapat content apa, kapan
+  - Stock cannot be manipulated - read-only, calculated from database
+- **CRITICAL FIX: QRIS Fee Calculation** ✅: Perbaikan perhitungan fee yang akurat 100%
+  - Fix double fee calculation (sistem + Pakasir)
+  - Invoice amount sekarang **exact match** dengan QRIS charge
+  - Fee ditampilkan sebagai "Biaya Layanan" (bukan "Pakasir")
+- **Enhanced Admin Notifications** 📊: Notifikasi lebih comprehensive
+  - Status pembayaran (⏳ Pending → ✅ Success)
+  - Notifikasi otomatis saat pembayaran berhasil
+  - Notifikasi otomatis saat deposit berhasil
+  - Detail lengkap customer dan produk yang dibeli
+- **Improved Welcome Experience** 🎉: UX lebih professional
+  - Inline keyboard dengan tombol "📋 INFORMASI" dan "📖 Cara Order"
+  - Format pesan lebih clean dan modern
+  - Product list dengan horizontal button layout (max 5 per row)
+- **Better Error Handling** 🛡️: Bot tidak spam error untuk pesan tidak dikenal
+
+### Core Features
 - **Payment Expiration Monitoring**: Sistem otomatis untuk tracking dan notifikasi pembayaran expired
   - Scheduled job berjalan setiap 60 detik untuk monitor expired payments
-  - Auto-cancel dan restock produk ketika payment expired
+  - Auto-cancel dan release content ketika payment expired
   - User menerima notifikasi lengkap dengan detail transaksi dan langkah selanjutnya
   - Deposit QRIS yang tidak dibayar ikut dibatalkan dan log pesan dibersihkan
   - Mencegah "ghost orders" yang block inventory tanpa pembayaran
-- **Informasi & Cara Order Panel**: Pesan welcome tunggal menyertakan inline button `ℹ️ INFORMASI` dan `📘 Cara Order`
+- **Informasi & Cara Order Panel**: Pesan welcome dengan inline button `📋 INFORMASI` dan `📖 Cara Order`
   - Panel informasi menampilkan saldo, status verifikasi, Bank ID, dan ID pengguna
   - User dapat mengubah display name & nomor WhatsApp langsung dari Telegram
   - Tombol Customer Service mengarahkan ke admin, sedangkan Last Transaction menampilkan histori order terbaru
   - Template Cara Order dapat dikustomisasi (teks + gambar) dari menu admin
-- **QRIS Invoice Normalization**: Subtotal, fee Pakasir (0,7% + Rp310), dan total dibayar ditampilkan terpisah; guard mencegah checkout ketika keranjang kosong
+- **QRIS Invoice Normalization**: Subtotal, biaya layanan (0,7% + Rp310), dan total dibayar ditampilkan terpisah; guard mencegah checkout ketika keranjang kosong
 - **Deposit QRIS Otomatis**: Menu `💰 Deposit` membuat invoice QRIS dengan fee otomatis, menyimpan log deposit, dan scheduler membersihkan pesan kadaluarsa
 - **Menu Admin Telegram dengan Hierarki**: Admin dapat mengakses menu khusus `⚙️ Admin Settings` dengan submenu terstruktur:
   - **Kelola Respon Bot**: Preview template pesan (welcome, payment success) dengan placeholder, edit teks/gambar, dan **inline cancel button** di setiap mode input

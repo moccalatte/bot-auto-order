@@ -363,6 +363,16 @@ async def _send_welcome_message(
     if target_message is None:
         return
 
+    # Create inline keyboard for INFORMASI and Cara Order
+    inline_keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("📋 INFORMASI", callback_data="info_bot"),
+                InlineKeyboardButton("📖 Cara Order", callback_data="info_howto"),
+            ]
+        ]
+    )
+
     if is_admin:
         reply_keyboard = admin_main_menu()
     else:
@@ -370,8 +380,14 @@ async def _send_welcome_message(
 
     await target_message.reply_text(
         welcome_text,
-        reply_markup=reply_keyboard,
+        reply_markup=inline_keyboard,
         parse_mode=ParseMode.HTML,
+    )
+
+    # Send reply keyboard separately for better UX
+    await target_message.reply_text(
+        "⌨️ Gunakan menu di bawah untuk navigasi:",
+        reply_markup=reply_keyboard,
     )
 
 
@@ -548,16 +564,19 @@ async def handle_product_list(
         if nav_row:
             buttons.append(nav_row)
 
-        # Add product selection buttons (first 5 products on current page)
+        # Add product selection buttons in horizontal layout (max 5 per row)
+        product_row = []
         for idx, product in enumerate(products[start_idx:end_idx], start=start_idx + 1):
-            buttons.append(
-                [
-                    InlineKeyboardButton(
-                        f"{idx}",
-                        callback_data=f"product:{product.id}",
-                    )
-                ]
+            product_row.append(
+                InlineKeyboardButton(
+                    f"{idx}",
+                    callback_data=f"product:{product.id}",
+                )
             )
+            # Add row when we have 5 buttons or it's the last product
+            if len(product_row) == 5 or idx == end_idx:
+                buttons.append(product_row)
+                product_row = []
 
         keyboard = InlineKeyboardMarkup(buttons) if buttons else None
 
@@ -683,6 +702,7 @@ async def _notify_admin_new_order(
         f"<b>Username:</b> {html.escape(username)}\n"
         f"<b>Pesanan:</b> {html.escape(products_text)}\n"
         f"<b>Metode Pembayaran:</b> {html.escape(method_label)}\n"
+        f"<b>Status:</b> ⏳ Menunggu Pembayaran\n"
         f"<b>ID Pesanan:</b> {html.escape(order_id)}\n"
         f"<b>Tanggal Pembelian:</b> {html.escape(timestamp_str)}\n\n"
         "✨ <b>Silakan simpan catatan pesanan ini jika perlu. Terima kasih</b> ✨"
@@ -744,7 +764,7 @@ async def _notify_admin_new_deposit(
         "💰 <b>Deposit Baru</b>\n\n"
         f"<b>User:</b> {html.escape(customer_name)} (ID {user.id})\n"
         f"<b>Nominal Deposit:</b> {amount_text}\n"
-        f"<b>Fee Pakasir:</b> {fee_text}\n"
+        f"<b>Biaya Layanan:</b> {fee_text}\n"
         f"<b>Total Dibayar:</b> {payable_text}\n"
         f"<b>Gateway ID:</b> <code>{gateway_order_id}</code>\n"
         f"<b>Tanggal:</b> {timestamp_str}\n\n"
@@ -1961,7 +1981,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
         return
 
-    await update.message.reply_text(messages.generic_error(), parse_mode=ParseMode.HTML)
+    # Don't send generic error for unrecognized text
+    # Only show error for actual system failures or rate limiting
+    pass
 
 
 async def media_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2096,13 +2118,13 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.answer("Stok diperbarui")
         return
 
-    if data == "welcome:info":
+    if data == "info_bot" or data == "welcome:info":
         await query.answer()
         if query.message:
             await _send_user_info_panel(query.message, context, user)
         return
 
-    if data == "welcome:howto":
+    if data == "info_howto" or data == "welcome:howto":
         await query.answer()
         if query.message:
             await _send_cara_order(query.message, context, user)
