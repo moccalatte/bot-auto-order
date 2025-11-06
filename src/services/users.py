@@ -82,6 +82,22 @@ async def get_user_profile(telegram_id: int) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
+async def get_user_by_telegram_id(telegram_id: int) -> Dict[str, Any] | None:
+    """Get full user record by Telegram ID."""
+    pool = await get_pool()
+    async with pool.acquire() as connection:
+        row = await connection.fetchrow(
+            """
+            SELECT *
+            FROM users
+            WHERE telegram_id = $1
+            LIMIT 1;
+            """,
+            telegram_id,
+        )
+    return dict(row) if row else None
+
+
 async def update_user_profile(
     telegram_id: int,
     *,
