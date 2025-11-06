@@ -29,6 +29,7 @@ from src.services.users import block_user, list_users, unblock_user
 from src.services.voucher import add_voucher, delete_voucher, list_vouchers
 from src.services.terms import set_product_terms, clear_product_terms
 from src.services.owner_alerts import notify_owners
+from src.bot.admin.messages import AdminMessages
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,8 @@ class AdminActionError(Exception):
 def _parse_int(value: str, field: str) -> int:
     try:
         return int(value)
-    except ValueError as exc:
-        raise AdminActionError(f"Nilai '{field}' harus berupa angka.") from exc
+    except (ValueError, TypeError) as exc:
+        raise AdminActionError(AdminMessages.VALUE_MUST_BE_NUMBER.format(field=field)) from exc
 
 
 def parse_price_to_cents(value: str) -> int:
@@ -49,16 +50,19 @@ def parse_price_to_cents(value: str) -> int:
     normalised = value.replace(".", "").replace(",", ".")
     try:
         rupiah = float(normalised)
-    except ValueError as exc:
-        raise AdminActionError(
-            "Harga tidak valid. Gunakan format contoh 15000 atau 15000,50."
-        ) from exc
+    except (ValueError, TypeError) as exc:
+        raise AdminActionError(AdminMessages.PRICE_INVALID) from exc
     return int(round(rupiah * 100))
 
 
 def _parse_price_to_cents(value: str) -> int:
     """Deprecated: Use parse_price_to_cents instead."""
     return parse_price_to_cents(value)
+
+
+def _parse_voucher_id(raw: str) -> int:
+    """Parse voucher ID from raw input."""
+    return _parse_int(raw.strip(), "voucher_id")
 
 
 async def handle_add_product_input(
@@ -74,7 +78,7 @@ async def handle_add_product_input(
     parts = [part.strip() for part in raw.split("|")]
     if len(parts) < 6:
         raise AdminActionError(
-            "Format tidak valid. Gunakan: kategori_id|kode|nama|harga|stok|deskripsi."
+            f"{AdminMessages.INVALID_FORMAT} Gunakan: kategori_id|kode|nama|harga|stok|deskripsi."
         )
     category_id = _parse_int(parts[0], "kategori_id")
     code = parts[1]
@@ -110,7 +114,7 @@ async def handle_add_product_input(
             "stock": stock,
         },
     )
-    return f"✅ Produk '{name}' berhasil ditambahkan."
+    return AdminMessages.PRODUCT_ADDED.format(name=name)
 
 
 async def _load_product(product_id: int) -> Product:
@@ -138,10 +142,7 @@ async def save_product_snk(product_id: int, content: str, actor_id: int) -> str:
     await notify_owners(
         f"✏️ SNK produk '{product.name}' diperbarui oleh admin {actor_id}."
     )
-    return (
-        f"📜 SNK untuk '{product.name}' berhasil disimpan.\n"
-        "Customer akan menerima panduan ini setelah pembayaran sukses."
-    )
+    return AdminMessages.SNK_SAVED.format(name=product.name)
 
 
 async def clear_product_snk(product_id: int, actor_id: int) -> str:
@@ -162,7 +163,7 @@ async def clear_product_snk(product_id: int, actor_id: int) -> str:
     await notify_owners(
         f"🧹 SNK produk '{product.name}' dihapus oleh admin {actor_id}."
     )
-    return f"🧹 SNK untuk '{product.name}' sudah dihapus."
+    return AdminMessages.SNK_CLEARED.format(name=product.name)
 
 
 async def handle_manage_product_snk_input(raw: str, actor_id: int) -> str:
@@ -174,7 +175,7 @@ async def handle_manage_product_snk_input(raw: str, actor_id: int) -> str:
     parts = [part.strip() for part in raw.split("|", maxsplit=1)]
     if len(parts) != 2:
         raise AdminActionError(
-            "Format tidak valid. Gunakan: product_id|SNK baru atau product_id|hapus."
+            f"{AdminMessages.INVALID_FORMAT} Gunakan: product_id|SNK baru atau product_id|hapus."
         )
     product_id = _parse_int(parts[0], "product_id")
     payload = parts[1]
@@ -194,13 +195,13 @@ async def handle_edit_product_input(raw: str, actor_id: int) -> str:
     parts = [part.strip() for part in raw.split("|", maxsplit=1)]
     if len(parts) != 2:
         raise AdminActionError(
-            "Format tidak valid. Gunakan: produk_id|field=value,field=value."
+            f"{AdminMessages.INVALID_FORMAT} Gunakan: produk_id|field=value,field=value."
         )
     product_id = _parse_int(parts[0], "produk_id")
     updates: Dict[str, Any] = {}
     for assignment in parts[1].split(","):
         if "=" not in assignment:
-            raise AdminActionError(f"Format field tidak valid: {assignment}")
+            raise AdminActionError(f"{AdminMessages.INVALID_FORMAT} {assignment}")
         field, value = [item.strip() for item in assignment.split("=", maxsplit=1)]
         if field not in {
             "name",
@@ -232,7 +233,7 @@ async def handle_edit_product_input(raw: str, actor_id: int) -> str:
         action="admin.product.edit",
         details={"product_id": product_id, "fields": updates},
     )
-    return f"✅ Produk #{product_id} berhasil diupdate."
+    return AdminMessages.PRODUCT_UPDATED.format(product_id=product_id)
 
 
 async def handle_delete_product_input(raw: str, actor_id: int) -> str:
@@ -247,14 +248,14 @@ async def handle_delete_product_input(raw: str, actor_id: int) -> str:
         action="admin.product.delete",
         details={"product_id": product_id, "name": product.name},
     )
-    return f"🗑️ Produk '{product.name}' berhasil dihapus."
+    return AdminMessages.PRODUCT_DELETED.format(name=product.name)
 
 
 async def handle_update_order_input(raw: str, actor_id: int) -> str:
     parts = [part.strip() for part in raw.split("|")]
     if len(parts) < 2:
         raise AdminActionError(
-            "Format tidak valid. Gunakan: order_id|status_baru|catatan(optional)."
+            f"{AdminMessages.INVALID_FORMAT} Gunakan: order_id|status_baru|catatan(optional)."
         )
 
     order_id_str, new_status = parts[0], parts[1]
@@ -294,14 +295,16 @@ async def handle_update_order_input(raw: str, actor_id: int) -> str:
                 "note": note,
             },
         )
-        return f"🔄 Status order {order_id} diupdate ke {new_status}. Catatan tersimpan untuk audit."
+        return AdminMessages.ORDER_UPDATED_WITH_NOTE.format(
+            order_id=order_id, new_status=new_status
+        )
 
     audit_log(
         actor_id=actor_id,
         action="admin.order.update",
         details={"order_id": order_id, "status": new_status},
     )
-    return f"🔄 Status order {order_id} diupdate ke {new_status}."
+    return AdminMessages.ORDER_UPDATED.format(order_id=order_id, new_status=new_status)
 
 
 async def handle_block_user_input(
@@ -316,7 +319,7 @@ async def handle_block_user_input(
             action="admin.user.unblock",
             details={"user_id": user_id},
         )
-        return f"✅ User #{user_id} berhasil diaktifkan kembali."
+        return AdminMessages.USER_UNBLOCKED.format(user_id=user_id)
     await block_user(user_id)
     logger.info("Admin %s memblokir user %s.", actor_id, user_id)
     audit_log(
@@ -324,7 +327,7 @@ async def handle_block_user_input(
         action="admin.user.block",
         details={"user_id": user_id},
     )
-    return f"🚫 User #{user_id} berhasil diblokir."
+    return AdminMessages.USER_BLOCKED.format(user_id=user_id)
 
 
 def _format_product_line(product: Product) -> str:
@@ -433,7 +436,7 @@ async def handle_generate_voucher_input(raw: str, actor_id: int) -> str:
     parts = [part.strip() for part in raw.split("|")]
     if len(parts) != 3:
         raise AdminActionError(
-            "Format tidak valid. Gunakan: KODE | NOMINAL | BATAS_PAKAI\n"
+            f"{AdminMessages.INVALID_FORMAT} Gunakan: KODE | NOMINAL | BATAS_PAKAI\n"
             "Contoh: HEMAT10 | 10% | 100"
         )
 
@@ -444,28 +447,19 @@ async def handle_generate_voucher_input(raw: str, actor_id: int) -> str:
     # Parse nominal - bisa berupa persen (10%) atau nilai rupiah (5000)
     if nominal_str.endswith("%"):
         discount_type = "percent"  # Database constraint uses 'percent'
-        try:
-            discount_value = int(nominal_str[:-1])
-            if discount_value <= 0 or discount_value > 100:
-                raise AdminActionError("Persen harus antara 1-100")
-        except ValueError:
-            raise AdminActionError(f"Format persen tidak valid: {nominal_str}")
+        discount_value = _parse_int(nominal_str[:-1], "persen")
+        if not 1 <= discount_value <= 100:
+            raise AdminActionError("Persen harus antara 1-100")
     else:
         discount_type = "flat"  # Database constraint uses 'flat'
-        try:
-            discount_value = int(nominal_str)
-            if discount_value <= 0:
-                raise AdminActionError("Nominal harus lebih dari 0")
-        except ValueError:
-            raise AdminActionError(f"Format nominal tidak valid: {nominal_str}")
+        discount_value = _parse_int(nominal_str, "nominal")
+        if discount_value <= 0:
+            raise AdminActionError("Nominal harus lebih dari 0")
 
     # Parse max uses
-    try:
-        max_uses = int(max_uses_str)
-        if max_uses <= 0:
-            raise AdminActionError("Batas pakai harus lebih dari 0")
-    except ValueError:
-        raise AdminActionError(f"Format batas pakai tidak valid: {max_uses_str}")
+    max_uses = _parse_int(max_uses_str, "batas pakai")
+    if max_uses <= 0:
+        raise AdminActionError("Batas pakai harus lebih dari 0")
 
     # Create voucher dengan deskripsi otomatis
     if discount_type == "percent":
@@ -504,18 +498,16 @@ async def handle_generate_voucher_input(raw: str, actor_id: int) -> str:
         },
     )
 
-    return (
-        f"✅ <b>Voucher berhasil dibuat!</b>\n\n"
-        f"🎟️ Kode: <code>{code}</code>\n"
-        f"💰 {description}\n"
-        f"📊 Max Pakai: <b>{max_uses}x</b>\n"
-        f"🆔 ID: <code>{voucher_id}</code>\n\n"
-        "📝 Perubahan tercatat di log untuk audit."
+    return AdminMessages.VOUCHER_CREATED.format(
+        code=code,
+        description=description,
+        max_uses=max_uses,
+        voucher_id=voucher_id,
     )
 
 
 async def handle_delete_voucher_input(raw: str, actor_id: int) -> str:
-    voucher_id = _parse_int(raw.strip(), "voucher_id")
+    voucher_id = _parse_voucher_id(raw)
     await delete_voucher(voucher_id)
     logger.info("Admin %s menonaktifkan voucher id=%s.", actor_id, voucher_id)
     audit_log(
@@ -523,7 +515,7 @@ async def handle_delete_voucher_input(raw: str, actor_id: int) -> str:
         action="admin.voucher.disable",
         details={"voucher_id": voucher_id},
     )
-    return f"🗑️ Voucher #{voucher_id} berhasil dinonaktifkan dan tercatat di log."
+    return AdminMessages.VOUCHER_DISABLED.format(voucher_id=voucher_id)
 
 
 __all__ = [

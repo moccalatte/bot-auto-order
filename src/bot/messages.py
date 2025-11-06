@@ -174,7 +174,7 @@ def deposit_invoice_detail(
         f"💼 <b>Deposit QRIS Dibuat</b>\n<code>{invoice_id}</code>\n\n"
         "💰 <b>Nominal Deposit:</b> "
         f"<b>{amount_rp}</b>\n"
-        f"💸 <b>Biaya Layanan:</b> <b>{fee_rp}</b>\n"
+        f"💸 <b>Biaya Layanan Pakasir:</b> <b>{fee_rp}</b>\n"
         f"💳 <b>Total Dibayar:</b> <b>{payable_rp}</b>\n"
         f"📅 <b>Tanggal Dibuat:</b> {created_at}\n"
         f"⏰ <b>Expired In:</b> {expires_in}\n\n"

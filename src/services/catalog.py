@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import List, Sequence
 
 from src.services.postgres import get_pool
+from src.services.product_content import delete_all_contents_for_product
 
 logger = logging.getLogger(__name__)
 
@@ -261,7 +262,7 @@ async def edit_product(product_id: int, **fields) -> None:
 
 async def delete_product(product_id: int) -> None:
     """
-    Hapus produk dari database.
+    Hapus produk dari database beserta semua isinya (product_contents).
 
     Args:
         product_id: ID produk yang akan dihapus
@@ -271,28 +272,19 @@ async def delete_product(product_id: int) -> None:
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        # Check if product has order items
-        order_items = await conn.fetchval(
-            """
-            SELECT COUNT(*) FROM order_items
-            WHERE product_id = $1
-            LIMIT 1;
-            """,
-            product_id,
-        )
+        async with conn.transaction():
+            # Hapus semua product_contents terkait
+            await delete_all_contents_for_product(product_id)
 
-        if order_items and order_items > 0:
-            raise ValueError(
-                f"Produk tidak dapat dihapus karena sudah ada dalam {order_items} order. "
-                "Sebaiknya nonaktifkan produk dengan set is_active = FALSE."
+            # Hapus produk
+            result = await conn.execute("DELETE FROM products WHERE id = $1;", product_id)
+
+            if result == "DELETE 0":
+                raise ValueError(f"Produk dengan ID {product_id} tidak ditemukan")
+
+            logger.info(
+                "[catalog] Deleted product id=%s and its contents", product_id
             )
-
-        result = await conn.execute("DELETE FROM products WHERE id = $1;", product_id)
-
-        if result == "DELETE 0":
-            raise ValueError(f"Produk dengan ID {product_id} tidak ditemukan")
-
-        logger.info("[catalog] Deleted product id=%s", product_id)
 
 
 async def list_products_by_category(category_slug: str) -> Sequence[Product]:

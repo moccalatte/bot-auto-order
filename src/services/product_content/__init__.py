@@ -178,6 +178,36 @@ async def add_bulk_product_content(
     return results
 
 
+async def delete_all_contents_for_product(product_id: int) -> int:
+    """
+    Deletes all product_contents for a given product_id.
+
+    Args:
+        product_id: The ID of the product.
+
+    Returns:
+        The number of deleted contents.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            DELETE FROM product_contents WHERE product_id = $1;
+            """,
+            product_id,
+        )
+        try:
+            deleted_count = int(result.split(" ")[1])
+        except (IndexError, ValueError):
+            deleted_count = 0
+        logger.info(
+            "[product_content] Deleted %s contents for product_id=%s",
+            deleted_count,
+            product_id,
+        )
+        return deleted_count
+
+
 async def get_available_content(product_id: int, quantity: int = 1) -> List[Dict]:
     """
     Get available (unused) content for a product.
