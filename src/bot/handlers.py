@@ -2910,8 +2910,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
                 await asyncio.sleep(2)
                 # Redirect back to manage stock
-                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
                     text="Klik tombol di bawah untuk kembali ke menu kelola stok:",

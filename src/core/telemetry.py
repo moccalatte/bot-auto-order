@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Dict
 
@@ -46,7 +46,7 @@ class TelemetryTracker:
     async def flush(self) -> None:
         """Write current metrics to log."""
         async with self._lock:
-            metrics = vars(self.snapshot).copy()
+            metrics = asdict(self.snapshot)
             logger.info("📊 Telemetry: %s", metrics)
 
     async def flush_to_db(self) -> None:
@@ -54,7 +54,7 @@ class TelemetryTracker:
         from src.services.postgres import get_pool
 
         async with self._lock:
-            metrics = vars(self.snapshot).copy()
+            metrics = asdict(self.snapshot)
 
         try:
             pool = await get_pool()
