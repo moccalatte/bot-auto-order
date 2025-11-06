@@ -246,11 +246,6 @@ class PaymentService:
         }
 
     async def create_deposit_invoice(
-        self,
-        *,
-        telegram_user: Dict[str, str | int | None],
-        amount_cents: int,
-    async def create_deposit_invoice(
         self, telegram_user: Dict[str, str | int | None], amount_cents: int
     ) -> Tuple[str, Dict[str, object]]:
         """Create QRIS deposit invoice."""
@@ -583,7 +578,9 @@ class PaymentService:
                 contents = await get_order_contents(UUID(order_id))
 
                 if not contents:
-                    logger.warning("[product_delivery] No contents found for order %s", order_id)
+                    logger.warning(
+                        "[product_delivery] No contents found for order %s", order_id
+                    )
                     return
 
                 # Build message with all product contents
@@ -591,7 +588,7 @@ class PaymentService:
                     f"🎉 <b>Pembayaran Berhasil, {customer_name}!</b>\n",
                     "✅ Terima kasih sudah berbelanja di toko kami.\n",
                     f"📦 <b>Order ID:</b> <code>{order_id}</code>\n\n",
-                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n",
                 ]
 
                 for idx, content_data in enumerate(contents, 1):
@@ -617,9 +614,13 @@ class PaymentService:
                     message_parts.append("\n📜 <b>Syarat & Ketentuan:</b>\n")
                     for snk_row in snk_rows:
                         message_parts.append(f"{snk_row['content']}\n")
-                    message_parts.append("\n⚠️ <b>WAJIB BACA DAN IKUTI S&K DI ATAS!</b>\n")
+                    message_parts.append(
+                        "\n⚠️ <b>WAJIB BACA DAN IKUTI S&K DI ATAS!</b>\n"
+                    )
 
-                message_parts.append("\n💬 Jika ada kendala, hubungi admin ya. Terima kasih! 😊")
+                message_parts.append(
+                    "\n💬 Jika ada kendala, hubungi admin ya. Terima kasih! 😊"
+                )
 
                 full_message = "".join(message_parts)
 
@@ -692,12 +693,16 @@ class PaymentService:
                     order_id,
                 )
 
-            customer_name = order_data["first_name"] or order_data["username"] or "Customer"
+            customer_name = (
+                order_data["first_name"] or order_data["username"] or "Customer"
+            )
             username = f"@{order_data['username']}" if order_data["username"] else "-"
             telegram_id = order_data["telegram_id"]
             total_text = format_rupiah(order_data["total_price_cents"])
 
-            products_list = ", ".join([f"{item['quantity']}x {item['name']}" for item in order_items])
+            products_list = ", ".join(
+                [f"{item['quantity']}x {item['name']}" for item in order_items]
+            )
 
             message_text = (
                 f"✅ <b>Pembayaran Berhasil!</b>\n\n"
@@ -730,7 +735,11 @@ class PaymentService:
             logger.error("[payment_success_notif] Error sending notification: %s", exc)
 
     async def _notify_admins_deposit_success(
-        self, gateway_order_id: str, deposit_id: int, user_telegram_id: int, amount_cents: int
+        self,
+        gateway_order_id: str,
+        deposit_id: int,
+        user_telegram_id: int,
+        amount_cents: int,
     ) -> None:
         """Send notification to admins when deposit is successful."""
         try:
@@ -757,7 +766,9 @@ class PaymentService:
             if not user_data:
                 return
 
-            customer_name = user_data["first_name"] or user_data["username"] or "Customer"
+            customer_name = (
+                user_data["first_name"] or user_data["username"] or "Customer"
+            )
             username = f"@{user_data['username']}" if user_data["username"] else "-"
             amount_text = format_rupiah(amount_cents)
 
@@ -840,10 +851,7 @@ class PaymentService:
 
         # Notify admins about successful deposit
         await self._notify_admins_deposit_success(
-            gateway_order_id,
-            int(updated["id"]),
-            int(updated["user_id"]),
-            credit_amount
+            gateway_order_id, int(updated["id"]), int(updated["user_id"]), credit_amount
         )
 
         return updated
