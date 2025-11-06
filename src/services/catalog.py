@@ -65,11 +65,28 @@ async def list_categories() -> List[Category]:
     return [Category(**dict(row)) for row in rows]
 
 
-async def list_products(limit: int = 50) -> List[Product]:
-    """Return active products with optional limit."""
+async def list_products(
+    limit: int = 50, exclude_zero_stock: bool = True
+) -> List[Product]:
+    """
+    Return active products with optional limit.
+
+    Args:
+        limit: Maximum number of products to return
+        exclude_zero_stock: If True, exclude products with stock=0 (default: True for customer view)
+
+    Returns:
+        List of Product objects
+    """
     pool = await get_pool()
+
+    # Build WHERE clause based on exclude_zero_stock
+    where_clause = "WHERE p.is_active = TRUE"
+    if exclude_zero_stock:
+        where_clause += " AND p.stock > 0"
+
     rows = await pool.fetch(
-        """
+        f"""
         SELECT
             p.id,
             p.code,
@@ -84,7 +101,7 @@ async def list_products(limit: int = 50) -> List[Product]:
             COALESCE(c.emoji, '🗂️') AS category_emoji
         FROM products p
         LEFT JOIN categories c ON p.category_id = c.id
-        WHERE p.is_active = TRUE
+        {where_clause}
         ORDER BY p.id ASC
         LIMIT $1;
         """,
@@ -319,11 +336,26 @@ async def delete_product(product_id: int, *, force: bool = False) -> None:
             )
 
 
-async def list_products_by_category(category_slug: str) -> Sequence[Product]:
-    """Return products filtered by category slug."""
+async def list_products_by_category(
+    category_slug: str, exclude_zero_stock: bool = True
+) -> Sequence[Product]:
+    """
+    Return products filtered by category slug.
+
+    Args:
+        category_slug: Category slug to filter by
+        exclude_zero_stock: If True, exclude products with stock=0 (default: True for customer view)
+
+    Returns:
+        Sequence of Product objects
+    """
     pool = await get_pool()
+
+    # Build WHERE clause based on exclude_zero_stock
+    stock_filter = " AND p.stock > 0" if exclude_zero_stock else ""
+
     rows = await pool.fetch(
-        """
+        f"""
         SELECT
             p.id,
             p.code,
@@ -339,7 +371,7 @@ async def list_products_by_category(category_slug: str) -> Sequence[Product]:
         FROM products p
         INNER JOIN categories c ON p.category_id = c.id
         WHERE c.slug = $1
-          AND p.is_active = TRUE
+          AND p.is_active = TRUE{stock_filter}
         ORDER BY p.id ASC;
         """,
         category_slug,

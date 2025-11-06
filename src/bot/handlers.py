@@ -1259,7 +1259,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if state:
             reply_kwargs: Dict[str, Any] = {}
             keep_state = False
+            state_handled = False
             try:
+                state_handled = True
                 if state.action == "add_product_step":
                     # Handle step-by-step wizard for adding product
                     step = state.payload.get("step", "code")
@@ -1845,10 +1847,13 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 elif state.action == "user_order_history":
                     response = await render_user_order_history(int(text))
                 else:
-                    response = "⚠️ Aksi admin tidak dikenali."
+                    # Unrecognized state - clear it and let normal routing handle the message
+                    logger.warning(
+                        "Unrecognized admin state action: %s, clearing state and falling through to normal routing",
+                        state.action,
+                    )
                     clear_admin_state(context.user_data)
-                    await update.message.reply_text(response)
-                    return
+                    state_handled = False
             except AdminActionError as exc:
                 await update.message.reply_text(f"❌ {exc}")
                 return
@@ -1859,12 +1864,15 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     "⚠️ Terjadi kesalahan internal, coba lagi."
                 )
                 return
-            clear_admin_state(context.user_data)
-            if keep_state and state.action == "broadcast_message":
-                set_admin_state(context.user_data, "broadcast_message")
-            await update.message.reply_text(response, **reply_kwargs)
-            # Removed old add_product SNK prompt - now handled in wizard
-            return
+
+            # Only process response if state was handled (not passed through to normal routing)
+            if state_handled:
+                clear_admin_state(context.user_data)
+                if keep_state and state.action == "broadcast_message":
+                    set_admin_state(context.user_data, "broadcast_message")
+                await update.message.reply_text(response, **reply_kwargs)
+                # Removed old add_product SNK prompt - now handled in wizard
+                return
 
     # Admin Settings - Main Entry Point
     if text == "⚙️ Admin Settings":
@@ -1905,7 +1913,11 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         from src.bot.admin.admin_menu import admin_product_menu
 
-        products = await list_products(limit=5)
+        # Clear any existing admin state to ensure clean routing
+        clear_admin_state(context.user_data)
+
+        # Show all products including zero-stock for admin view
+        products = await list_products(limit=100, exclude_zero_stock=False)
         product_count = len(products)
         await update.message.reply_text(
             f"🛒 <b>Kelola Produk</b>\n\n"
@@ -1965,16 +1977,25 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         # Clear admin state when returning to main menu
         clear_admin_state(context.user_data)
         if user:
-            await _send_welcome_message(update, context, user)
+            # Send welcome message with main menu keyboard to replace admin keyboard
+            await update.message.reply_text(
+                f"👋 Halo <b>{user.get('full_name', 'User')}</b>!\n\n"
+                f"Selamat datang kembali di menu utama.\n"
+                f"Silakan pilih menu di bawah:",
+                reply_markup=keyboards.main_reply_keyboard(is_admin),
+                parse_mode=ParseMode.HTML,
+            )
         return
 
     if text == "🛍 Semua Produk":
-        products = await list_products()
+        # Customer view: exclude zero-stock products
+        products = await list_products(exclude_zero_stock=True)
         await handle_product_list(update.message, context, products, "Semua Produk")
         return
 
     if text == "🏷 Cek Stok":
-        products = await list_products()
+        # Customer view: exclude zero-stock products
+        products = await list_products(exclude_zero_stock=True)
         _store_products(context, products)
         settings = get_settings()
         stock_message = _build_stock_overview_message(
@@ -3212,10 +3233,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data.startswith("category:"):
         slug = data.split(":", maxsplit=1)[1]
         if slug == "all":
-            products = await list_products()
+            # Customer view: exclude zero-stock products
+            products = await list_products(exclude_zero_stock=True)
             title = "Semua Produk"
         else:
-            products = await list_products_by_category(slug)
+            # Customer view: exclude zero-stock products
+            products = await list_products_by_category(slug, exclude_zero_stock=True)
             title = f"Produk {slug}"
         await handle_product_list(query.message, context, products, title)
         return
@@ -3225,7 +3248,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             page = int(data.split(":", maxsplit=2)[2])
             products = context.user_data.get("product_list", [])
             if not products:
-                products = await list_products()
+                # Customer view: exclude zero-stock products
+                products = await list_products(exclude_zero_stock=True)
             await handle_product_list(
                 query.message, context, products, "Semua Produk", page=page
             )
