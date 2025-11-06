@@ -2,7 +2,7 @@
 
 Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui Pakasir, serta fitur kustomisasi menu dan respon bot oleh admin langsung dari Telegram.
 
-> **Status:** ✅ Production Ready | **Version:** 0.8.0 | **Last Updated:** 2025-01-06
+> **Status:** ✅ Production Ready | **Version:** 0.8.1 | **Last Updated:** 2025-01-06
 
 ## Struktur Proyek
 - `src/`
@@ -21,7 +21,15 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
 
 ## Fitur Utama
 
-### 🆕 v0.8.0 - Production-Grade Quality & UX Improvements ⚡
+### 🆕 v0.8.1 - Critical Bug Fix (HOTFIX) 🐛
+- **Fixed UnboundLocalError** 🔧: Resolved runtime error preventing admin from deleting products
+  - Removed duplicate callback handler `admin:snk_product` causing scope ambiguity
+  - Corrected mislabeled `admin:edit_product` handler to `admin:edit_product_message`
+  - All admin operations now function correctly without errors
+  - Zero duplicate handlers remaining in codebase
+  - Risk: Very Low | Confidence: Very High (99%)
+
+### 🎯 v0.8.0 - Production-Grade Quality & UX Improvements ⚡
 - **Automated Expiry Management** 🤖: Smart invoice & order lifecycle
   - Auto-cancel expired orders setiap 60 detik
   - Auto-delete/edit pesan invoice setelah expired

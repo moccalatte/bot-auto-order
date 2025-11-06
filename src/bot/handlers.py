@@ -2508,14 +2508,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 parse_mode=ParseMode.HTML,
             )
             return
-        elif data == "admin:snk_product":
-            set_admin_state(context.user_data, "manage_product_snk")
-            await update.effective_message.reply_text(
-                "📜 Kelola SNK Produk\n"
-                "Format: product_id|SNK baru\n"
-                "Gunakan product_id|hapus untuk mengosongkan SNK.",
-            )
-            return
         elif data == "admin:list_orders":
             overview = await render_order_overview()
             await update.effective_message.reply_text(
@@ -3094,7 +3086,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 parse_mode=ParseMode.HTML,
             )
             return
-        elif data == "admin:edit_product":
+        elif data == "admin:edit_product_message":
             set_admin_state(context.user_data, "edit_product_message")
             cancel_keyboard = InlineKeyboardMarkup(
                 [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
