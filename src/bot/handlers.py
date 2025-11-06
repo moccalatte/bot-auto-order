@@ -1962,6 +1962,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
     if text == "⬅️ Kembali ke Menu Utama":
+        # Clear admin state when returning to main menu
+        clear_admin_state(context.user_data)
         if user:
             await _send_welcome_message(update, context, user)
         return
@@ -3031,10 +3033,18 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             # Handle delete confirmation
             product_id = int(data.split(":")[2])
             try:
-                await delete_product(product_id)
+                await delete_product(product_id, force=True)
                 await update.effective_message.edit_text(
                     f"✅ <b>Produk berhasil dihapus!</b>\n\n"
-                    f"Produk dengan ID <code>{product_id}</code> telah dihapus dari database.",
+                    f"Produk dengan ID <code>{product_id}</code> telah dihapus.\n\n"
+                    f"💡 <i>Jika produk sudah digunakan di order, semua stok telah dikosongkan "
+                    f"untuk mencegah pembelian baru, namun data historis order tetap tersimpan.</i>",
+                    parse_mode=ParseMode.HTML,
+                )
+            except ValueError as exc:
+                logger.warning("Cannot delete product: %s", exc)
+                await update.effective_message.edit_text(
+                    f"⚠️ <b>Produk dihapus dengan catatan:</b>\n\n{exc}",
                     parse_mode=ParseMode.HTML,
                 )
             except Exception as exc:

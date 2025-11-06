@@ -4,11 +4,97 @@
 Dokumen ini berisi hasil audit kritis terhadap codebase bot-auto-order. Setiap temuan dilengkapi penjelasan, prioritas, dan rekomendasi solusi yang actionable untuk Fixer Agent. Audit dilakukan menyeluruh, mencakup business logic, data integrity, security, UX, dan maintainability.
 
 **Last Updated:** 2025-01-06  
-**Status:** ✅ ALL ISSUES RESOLVED (7 full, 1 partial) + v0.8.1 & v0.8.2 Fixes  
+**Status:** ✅ ALL ISSUES RESOLVED (7 full, 1 partial) + v0.8.1, v0.8.2 & v0.8.3 Fixes  
 **Fixer Agent Reports:** 
 - `docs/FIXES_SUMMARY_v0.8.0.md` - Major quality improvements
 - `docs/FIXES_SUMMARY_v0.8.1.md` - Critical bug fixes (UnboundLocalError)
 - `docs/FIXES_SUMMARY_v0.8.2.md` - Cache cleanup & import verification
+- `docs/FIXES_SUMMARY_v0.8.3.md` - Critical production fixes (delete product, state management)
+
+---
+
+## v0.8.3 Critical Production Fixes (**RUNTIME ERRORS**) ✅ **RESOLVED**
+
+### 11. Database Constraint Error - Product Delete (**CRITICAL**) ✅ **RESOLVED**
+**Masalah:**  
+Runtime error `NotNullViolationError: null value in column "product_id" of relation "order_items" violates not-null constraint` terjadi saat admin mencoba menghapus produk yang sudah digunakan di order. Root cause: database schema menggunakan `product_id INTEGER NOT NULL` dengan `ON DELETE RESTRICT`, sedangkan code mencoba `SET product_id = NULL`.
+
+**Detail Teknis:**
+1. **Schema Constraint Conflict:** `product_id NOT NULL + ON DELETE RESTRICT` untuk menjaga integritas data historis order
+2. **Old Code Approach:** Mencoba `UPDATE order_items SET product_id = NULL` untuk bypass constraint
+3. **Database Rejection:** Constraint violation karena NULL tidak diperbolehkan
+4. **Impact:** Admin tidak bisa delete product yang pernah di-order
+
+**Risiko:**  
+- Admin operations broken (cannot delete products)
+- Production downtime for admin tasks
+- Frustrating UX for administrators
+
+**✅ Solusi Implemented:**
+- Created smart delete algorithm with soft-delete support
+- Soft delete: Hapus semua `product_contents` (stok=0), keep product row for order history
+- Hard delete: Complete removal jika tidak ada order reference
+- Added `force` parameter to `delete_product()` function
+- Updated handler to use `force=True` for reliable deletion
+- Better error messages and user feedback
+
+**Files Modified:**
+- `src/services/catalog.py` - Rewrote `delete_product()` function (line 260-318)
+- `src/bot/handlers.py` - Updated handler with `force=True` and better error handling (line 3031-3049)
+
+**Impact:**
+- ✅ Admin can delete products without constraint errors
+- ✅ Historical order data preserved automatically
+- ✅ Database integrity maintained
+- ✅ User-friendly error messages
+
+---
+
+### 12. Admin State Management - Menu Navigation (**HIGH**) ✅ **RESOLVED**
+**Masalah:**  
+User tidak bisa keluar dari admin settings dengan "⬅️ Kembali ke Menu Utama". Menu ReplyKeyboardMarkup tetap menampilkan admin submenu (Kelola Produk, dll) bukan menu utama. Root cause: `context.user_data` admin state tidak di-clear saat navigasi kembali.
+
+**Detail Teknis:**
+1. **Old Flow:** Click "Kembali" → `_send_welcome_message()` called → Keyboard sent → BUT admin state not cleared
+2. **Problem:** Next interaction still thinks user in admin mode karena state masih ada di `context.user_data`
+3. **Result:** Reply keyboard shows wrong menu (stuck in admin submenu)
+
+**Risiko:**  
+- Poor admin UX (stuck in menus)
+- Confusing navigation flow
+- State leakage across sessions
+
+**✅ Solusi Implemented:**
+- Added `clear_admin_state(context.user_data)` call in "Kembali ke Menu Utama" handler
+- Ensures clean state on navigation transitions
+- Proper keyboard display based on fresh state
+
+**Files Modified:**
+- `src/bot/handlers.py` - Added state clearing (line 1964-1970)
+
+**Impact:**
+- ✅ Menu navigation works smoothly
+- ✅ No stuck states in admin mode
+- ✅ Clean state management
+- ✅ Better admin UX
+
+---
+
+### 13. Import Checker False Positive (**LOW**) ✅ **RESOLVED**
+**Masalah:**  
+Import checker script (`cleanup_and_fix.sh`) melaporkan error untuk `setup_handlers` yang tidak ada di `src/bot/handlers.py`. Function tersebut tidak pernah ada dan tidak diperlukan, causing confusing false positive error.
+
+**✅ Solusi Implemented:**
+- Removed `setup_handlers` from CRITICAL_IMPORTS list in cleanup script
+- Import checker now passes 100%
+
+**Files Modified:**
+- `scripts/cleanup_and_fix.sh` - Removed non-existent function (line 63-70)
+
+**Impact:**
+- ✅ Import checker passes without false positives
+- ✅ User confidence restored
+- ✅ No more confusing errors
 
 ---
 

@@ -67,7 +67,6 @@ CRITICAL_IMPORTS=(
     "src.services.catalog:add_product"
     "src.services.payment:PaymentService"
     "src.services.postgres:get_pool"
-    "src.bot.handlers:setup_handlers"
 )
 
 FAILED_IMPORTS=0

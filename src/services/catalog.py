@@ -260,13 +260,17 @@ async def edit_product(product_id: int, **fields) -> None:
             raise
 
 
-async def delete_product(product_id: int) -> None:
+async def delete_product(product_id: int, *, force: bool = False) -> None:
     """
     Hapus produk dari database beserta semua isinya (product_contents).
-    Referensi dari order_items akan di-set ke NULL.
+
+    CATATAN: Produk tidak dapat dihapus jika sudah ada order yang menggunakan produk ini,
+    kecuali jika force=True. Dengan force=True, produk akan disembunyikan saja (stok=0)
+    untuk menjaga integritas data historis order.
 
     Args:
         product_id: ID produk yang akan dihapus
+        force: Jika True dan ada order, akan soft-delete (set stok=0) instead of hard delete
 
     Raises:
         ValueError: Jika produk tidak dapat dihapus
@@ -274,23 +278,44 @@ async def delete_product(product_id: int) -> None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # Hapus referensi dari order_items
-            await conn.execute(
-                "UPDATE order_items SET product_id = NULL WHERE product_id = $1;",
+            # Cek apakah ada order_items yang reference produk ini
+            order_check = await conn.fetchval(
+                "SELECT COUNT(*) FROM order_items WHERE product_id = $1;",
                 product_id,
             )
 
+            if order_check > 0:
+                if not force:
+                    raise ValueError(
+                        f"⚠️ Produk ini sudah digunakan di {order_check} order.\n\n"
+                        "Produk tidak dapat dihapus untuk menjaga data historis order. "
+                        "Namun produk akan disembunyikan dengan mengosongkan semua stok."
+                    )
+
+                # Soft delete: Hapus semua product_contents sehingga stok=0
+                # Produk tetap ada di database untuk referensi order_items
+                await delete_all_contents_for_product(product_id)
+
+                logger.info(
+                    "[catalog] Soft-deleted product id=%s (removed all contents, keeping product for order history)",
+                    product_id,
+                )
+                return
+
+            # Hard delete: Tidak ada order yang reference, aman untuk hapus
             # Hapus semua product_contents terkait
             await delete_all_contents_for_product(product_id)
 
             # Hapus produk
-            result = await conn.execute("DELETE FROM products WHERE id = $1;", product_id)
+            result = await conn.execute(
+                "DELETE FROM products WHERE id = $1;", product_id
+            )
 
             if result == "DELETE 0":
                 raise ValueError(f"Produk dengan ID {product_id} tidak ditemukan")
 
             logger.info(
-                "[catalog] Deleted product id=%s and its contents", product_id
+                "[catalog] Hard-deleted product id=%s and its contents", product_id
             )
 
 
