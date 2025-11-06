@@ -85,10 +85,14 @@ class TestCatalog(unittest.TestCase):
             self.assertEqual(content_count, 2)
 
             # 4. Delete the product
-            async def execute(*args, **kwargs):
-                return "DELETE 1"
+            async def execute_delete(*args, **kwargs):
+                if "UPDATE order_items" in args[0]:
+                    return "UPDATE 1"
+                elif "DELETE FROM products" in args[0]:
+                    return "DELETE 1"
+                return "DELETE 0"
 
-            mock_conn.execute = execute
+            mock_conn.execute = execute_delete
             await delete_product(product_id)
 
             # 5. Verify that the product and its contents are deleted

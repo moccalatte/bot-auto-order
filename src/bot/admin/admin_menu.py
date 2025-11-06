@@ -120,6 +120,11 @@ def admin_user_menu() -> InlineKeyboardMarkup:
     """Menu kelola user."""
     buttons = [
         [InlineKeyboardButton("👥 Lihat User", callback_data="admin:list_users")],
+        [
+            InlineKeyboardButton(
+                "📜 Riwayat Order User", callback_data="admin:user_order_history"
+            )
+        ],
         [InlineKeyboardButton("🚫 Blokir User", callback_data="admin:block_user")],
         [InlineKeyboardButton("✅ Unblokir User", callback_data="admin:unblock_user")],
         [InlineKeyboardButton("⬅️ Kembali", callback_data="admin:back")],

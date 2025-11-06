@@ -12,6 +12,41 @@ from src.services.terms import schedule_terms_notifications
 logger = logging.getLogger(__name__)
 
 
+async def list_orders_by_user(
+    user_id: int, limit: int = 10
+) -> List[Dict[str, Any]]:
+    """
+    List all orders for a specific user, sorted by most recent.
+
+    Args:
+        user_id: The user's internal database ID
+        limit: Max number of orders to return
+
+    Returns:
+        List of orders with payment info
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                o.id,
+                o.status,
+                o.total_price_cents,
+                o.created_at,
+                p.status AS payment_status
+            FROM orders o
+            LEFT JOIN payments p ON p.order_id = o.id
+            WHERE o.user_id = $1
+            ORDER BY o.created_at DESC
+            LIMIT $2;
+            """,
+            user_id,
+            limit,
+        )
+    return [dict(row) for row in rows]
+
+
 async def list_orders(limit: int = 50) -> List[Dict[str, Any]]:
     """
     List semua order, urut terbaru.

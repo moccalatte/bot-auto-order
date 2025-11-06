@@ -22,10 +22,11 @@ from src.services.catalog import (
 )
 from src.services.order import (
     list_orders,
+    list_orders_by_user,
     update_order_status,
     ensure_order_can_transition,
 )
-from src.services.users import block_user, list_users, unblock_user
+from src.services.users import block_user, list_users, unblock_user, get_user_by_telegram_id
 from src.services.voucher import add_voucher, delete_voucher, list_vouchers
 from src.services.terms import set_product_terms, clear_product_terms
 from src.services.owner_alerts import notify_owners
@@ -380,6 +381,32 @@ async def render_user_overview(limit: int = 10) -> str:
     return "👥 User Terbaru:\n" + "\n".join(lines)
 
 
+async def render_user_order_history(telegram_id: int) -> str:
+    """Render the order history for a specific user."""
+    user = await get_user_by_telegram_id(telegram_id)
+    if not user:
+        return f"❌ User dengan Telegram ID {telegram_id} tidak ditemukan."
+
+    orders = await list_orders_by_user(user["id"])
+    if not orders:
+        return f"👤 User {user.get('username') or telegram_id} belum memiliki riwayat order."
+
+    lines = []
+    for order in orders:
+        total_cents = int(order.get("total_price_cents") or 0)
+        total = format_rupiah(total_cents)
+        status = order.get("status", "UNKNOWN")
+        payment_status = order.get("payment_status") or "-"
+        created_at = order["created_at"].strftime("%d/%m/%Y %H:%M")
+        lines.append(
+            f"<b>{order['id']}</b>\n"
+            f"• Total: {total}\n"
+            f"• Status: {status} (Payment: {payment_status})\n"
+            f"• Tanggal: {created_at}"
+        )
+    return f"📋 Riwayat Order untuk {user.get('username') or telegram_id}:\n\n" + "\n\n".join(lines)
+
+
 async def list_categories_overview() -> str:
     categories = await list_categories()
     if not categories:
@@ -535,4 +562,5 @@ __all__ = [
     "save_product_snk",
     "clear_product_snk",
     "handle_manage_product_snk_input",
+    "render_user_order_history",
 ]

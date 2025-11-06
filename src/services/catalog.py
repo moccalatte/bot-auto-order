@@ -263,6 +263,7 @@ async def edit_product(product_id: int, **fields) -> None:
 async def delete_product(product_id: int) -> None:
     """
     Hapus produk dari database beserta semua isinya (product_contents).
+    Referensi dari order_items akan di-set ke NULL.
 
     Args:
         product_id: ID produk yang akan dihapus
@@ -273,6 +274,12 @@ async def delete_product(product_id: int) -> None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # Hapus referensi dari order_items
+            await conn.execute(
+                "UPDATE order_items SET product_id = NULL WHERE product_id = $1;",
+                product_id,
+            )
+
             # Hapus semua product_contents terkait
             await delete_all_contents_for_product(product_id)
 

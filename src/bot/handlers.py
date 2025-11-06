@@ -51,6 +51,7 @@ from src.bot.admin.admin_actions import (
     handle_delete_voucher_input,
     render_order_overview,
     render_product_overview,
+    render_user_order_history,
     render_user_overview,
     render_voucher_overview,
     save_product_snk,
@@ -1841,6 +1842,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                         user.id,  # type: ignore[arg-type]
                         unblock=state.payload.get("unblock", False),
                     )
+                elif state.action == "user_order_history":
+                    response = await render_user_order_history(int(text))
                 else:
                     response = "⚠️ Aksi admin tidak dikenali."
                     clear_admin_state(context.user_data)
@@ -2560,6 +2563,19 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.effective_message.reply_text(
                 "✅ <b>Unblokir User</b>\n\n"
                 "Kirim ID Telegram user yang ingin di-unblokir.\n\n"
+                "📝 Contoh: <code>123456789</code>",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data == "admin:user_order_history":
+            set_admin_state(context.user_data, "user_order_history")
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
+            )
+            await update.effective_message.reply_text(
+                "📜 <b>Riwayat Order User</b>\n\n"
+                "Kirim ID Telegram user yang ingin dilihat riwayat ordernya.\n\n"
                 "📝 Contoh: <code>123456789</code>",
                 reply_markup=cancel_keyboard,
                 parse_mode=ParseMode.HTML,
