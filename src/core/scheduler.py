@@ -10,6 +10,7 @@ from telegram.ext import Application
 
 from src.core.config import get_settings
 from src.core.tasks import backup_job, healthcheck_job, check_expired_payments_job
+from src.core.telemetry import telemetry_flush_job
 
 
 def _parse_time(value: str, timezone: str) -> time:
@@ -55,3 +56,13 @@ def register_scheduled_jobs(application: Application) -> None:
         first=10,  # Start after 10 seconds
         name="check_expired_payments",
     )
+
+    # Flush telemetry to database every 6 hours
+    telemetry_tracker = application.bot_data.get("telemetry")
+    if telemetry_tracker:
+        job_queue.run_repeating(
+            lambda context: telemetry_flush_job(telemetry_tracker),
+            interval=21600,  # 6 hours in seconds
+            first=300,  # Start after 5 minutes
+            name="telemetry_flush",
+        )

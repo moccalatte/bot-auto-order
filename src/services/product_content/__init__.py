@@ -1,14 +1,32 @@
-"""Product content management service for digital inventory."""
+"""Product content management with integrity checks."""
 
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional
-from uuid import UUID
+from typing import Dict, List, Any
 
 from src.services.postgres import get_pool
 
+
 logger = logging.getLogger(__name__)
+
+
+async def add_content(product_id: int, content: str) -> int:
+    """
+    Add a single product content.
+    Alias for add_product_content for convenience.
+
+    Args:
+        product_id: ID produk
+        content: Isi produk
+
+    Returns:
+        ID content yang baru dibuat
+
+    Raises:
+        ValueError: Jika validasi gagal
+    """
+    return await add_product_content(product_id, content)
 
 
 async def add_product_content(product_id: int, content: str) -> int:
@@ -357,14 +375,19 @@ async def delete_product_content(content_id: int) -> bool:
 
 
 async def list_product_contents(
-    product_id: int, include_used: bool = False, limit: int = 50, offset: int = 0
+    product_id: int,
+    used: bool | None = None,
+    include_used: bool = False,
+    limit: int = 50,
+    offset: int = 0,
 ) -> List[Dict]:
     """
     List all contents for a product.
 
     Args:
         product_id: The product ID
-        include_used: Whether to include used contents
+        used: Filter by used status (None = all, True = used only, False = unused only)
+        include_used: DEPRECATED - use 'used' parameter instead
         limit: Max number of records to return
         offset: Pagination offset
 
@@ -374,6 +397,11 @@ async def list_product_contents(
     Raises:
         ValueError: If invalid parameters
     """
+    # Handle backward compatibility
+    if used is None and include_used:
+        used = None  # Show all if include_used=True
+    elif used is None and not include_used:
+        used = False  # Show only unused if include_used=False (default)
     if limit <= 0:
         raise ValueError("Limit harus lebih dari 0")
 
@@ -382,7 +410,8 @@ async def list_product_contents(
 
     pool = await get_pool()
     async with pool.acquire() as connection:
-        if include_used:
+        if used is None:
+            # Show all contents
             query = """
                 SELECT
                     id,
@@ -397,21 +426,24 @@ async def list_product_contents(
                 ORDER BY created_at DESC
                 LIMIT $2 OFFSET $3;
             """
+            rows = await connection.fetch(query, product_id, limit, offset)
         else:
+            # Filter by used status
             query = """
                 SELECT
                     id,
                     product_id,
                     content,
                     is_used,
-                    created_at
+                    used_by_order_id,
+                    created_at,
+                    used_at
                 FROM product_contents
-                WHERE product_id = $1 AND is_used = FALSE
-                ORDER BY created_at ASC
-                LIMIT $2 OFFSET $3;
+                WHERE product_id = $1 AND is_used = $2
+                ORDER BY created_at DESC
+                LIMIT $3 OFFSET $4;
             """
-
-        rows = await connection.fetch(query, product_id, limit, offset)
+            rows = await connection.fetch(query, product_id, used, limit, offset)
         return [dict(row) for row in rows]
 
 
@@ -444,6 +476,47 @@ async def get_order_contents(order_id: UUID) -> List[Dict]:
             order_id,
         )
         return [dict(row) for row in rows]
+
+
+async def recalculate_stock(product_id: int) -> int:
+    """
+    Recalculate stock for a specific product based on unused content count.
+
+    Args:
+        product_id: ID produk yang akan dikalkulasi ulang
+
+    Returns:
+        Jumlah stok terbaru
+    """
+    pool = await get_pool()
+    async with pool.acquire() as connection:
+        # Get count of unused contents
+        unused_count = await connection.fetchval(
+            """
+            SELECT COUNT(*) FROM product_contents
+            WHERE product_id = $1 AND is_used = FALSE;
+            """,
+            product_id,
+        )
+
+        # Update product stock
+        await connection.execute(
+            """
+            UPDATE products
+            SET stock = $1, updated_at = NOW()
+            WHERE id = $2;
+            """,
+            unused_count,
+            product_id,
+        )
+
+        logger.info(
+            "[product_content] Recalculated stock for product %s: %s",
+            product_id,
+            unused_count,
+        )
+
+        return unused_count
 
 
 async def recalculate_all_stock() -> Dict[str, int]:

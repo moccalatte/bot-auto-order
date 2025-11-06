@@ -384,12 +384,6 @@ async def _send_welcome_message(
         parse_mode=ParseMode.HTML,
     )
 
-    # Send reply keyboard separately for better UX
-    await target_message.reply_text(
-        "⌨️ Gunakan menu di bawah untuk navigasi:",
-        reply_markup=reply_keyboard,
-    )
-
 
 def _format_local_timestamp(
     raw_timestamp: str | None,
@@ -1291,7 +1285,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                         )
                         await update.message.reply_text(
                             "➕ <b>Tambah Produk Baru</b>\n\n"
-                            "Langkah 2/5: Kirim <b>nama produk</b> (contoh: Netflix Premium 1 Bulan)\n\n"
+                            "Langkah 2/6: Kirim <b>nama produk</b> (contoh: Netflix Premium 1 Bulan)\n\n"
                             f"✅ Kode: <code>{product_data['code']}</code>",
                             reply_markup=cancel_keyboard,
                             parse_mode=ParseMode.HTML,
@@ -1308,7 +1302,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                         )
                         await update.message.reply_text(
                             "➕ <b>Tambah Produk Baru</b>\n\n"
-                            "Langkah 3/5: Kirim <b>harga produk</b> (contoh: 50000)\n\n"
+                            "Langkah 3/6: Kirim <b>harga produk</b> (contoh: 50000)\n\n"
                             f"✅ Kode: <code>{product_data['code']}</code>\n"
                             f"✅ Nama: <b>{product_data['name']}</b>",
                             reply_markup=cancel_keyboard,
@@ -1330,12 +1324,12 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                         set_admin_state(
                             context.user_data,
                             "add_product_step",
-                            step="stock",
+                            step="description",
                             product_data=product_data,
                         )
                         await update.message.reply_text(
                             "➕ <b>Tambah Produk Baru</b>\n\n"
-                            "Langkah 4/5: Kirim <b>jumlah stok</b> (contoh: 100)\n\n"
+                            "Langkah 4/6: Kirim <b>deskripsi produk</b> (atau ketik - untuk skip)\n\n"
                             f"✅ Kode: <code>{product_data['code']}</code>\n"
                             f"✅ Nama: <b>{product_data['name']}</b>\n"
                             f"✅ Harga: <b>{format_rupiah(product_data['price_cents'])}</b>",
@@ -1343,50 +1337,126 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                             parse_mode=ParseMode.HTML,
                         )
                         return
-                    elif step == "stock":
-                        # Save stock and ask for description
-                        try:
-                            stock = int(text.strip())
-                            product_data["stock"] = stock
-                        except ValueError:
-                            await update.message.reply_text(
-                                "❌ Stok harus berupa angka.\n\nSilakan kirim stok yang valid (contoh: 100)",
-                                reply_markup=cancel_keyboard,
-                                parse_mode=ParseMode.HTML,
-                            )
-                            return
+                    elif step == "description":
+                        # Save description, move to content input
+                        description = text.strip() if text.strip() != "-" else ""
+                        product_data["description"] = description
                         set_admin_state(
                             context.user_data,
                             "add_product_step",
-                            step="description",
+                            step="content_count",
                             product_data=product_data,
                         )
                         await update.message.reply_text(
                             "➕ <b>Tambah Produk Baru</b>\n\n"
-                            "Langkah 5/5: Kirim <b>deskripsi produk</b> (atau ketik - untuk skip)\n\n"
+                            "Langkah 5/6: Kirim <b>jumlah isi produk</b> yang akan ditambahkan (contoh: 10)\n\n"
                             f"✅ Kode: <code>{product_data['code']}</code>\n"
                             f"✅ Nama: <b>{product_data['name']}</b>\n"
                             f"✅ Harga: <b>{format_rupiah(product_data['price_cents'])}</b>\n"
-                            f"✅ Stok: <b>{product_data['stock']}</b> pcs",
+                            f"✅ Deskripsi: {product_data['description'] or '-'}\n\n"
+                            "💡 <i>Stok akan otomatis dihitung dari jumlah isi produk yang kamu input.</i>",
                             reply_markup=cancel_keyboard,
                             parse_mode=ParseMode.HTML,
                         )
                         return
-                    elif step == "description":
-                        # Save description and create product
-                        description = text.strip() if text.strip() != "-" else ""
-                        product_data["description"] = description
-
-                        # Create product (without category_id)
+                    elif step == "content_count":
+                        # Ask how many contents to add
                         try:
+                            content_count = int(text.strip())
+                            if content_count <= 0:
+                                await update.message.reply_text(
+                                    "❌ Jumlah isi produk harus lebih dari 0. Silakan coba lagi.",
+                                    reply_markup=cancel_keyboard,
+                                )
+                                return
+                        except ValueError:
+                            await update.message.reply_text(
+                                "❌ Format tidak valid. Kirim angka untuk jumlah isi (contoh: 10).",
+                                reply_markup=cancel_keyboard,
+                            )
+                            return
+                        product_data["content_count"] = content_count
+                        product_data["contents"] = []
+                        set_admin_state(
+                            context.user_data,
+                            "add_product_step",
+                            step="content_input",
+                            product_data=product_data,
+                        )
+                        await update.message.reply_text(
+                            "➕ <b>Tambah Produk Baru</b>\n\n"
+                            f"Langkah 6/6: Kirim <b>isi produk ke-1 dari {content_count}</b>\n\n"
+                            f"✅ Kode: <code>{product_data['code']}</code>\n"
+                            f"✅ Nama: <b>{product_data['name']}</b>\n"
+                            f"✅ Harga: <b>{format_rupiah(product_data['price_cents'])}</b>\n"
+                            f"✅ Jumlah Isi: <b>{content_count}</b>\n\n"
+                            "💡 <i>Kirim satu isi produk per pesan (misal: akun login, voucher code, dsb)</i>",
+                            reply_markup=cancel_keyboard,
+                            parse_mode=ParseMode.HTML,
+                        )
+                        return
+                    elif step == "content_input":
+                        # Collect content input
+                        content = text.strip()
+                        if not content:
+                            await update.message.reply_text(
+                                "❌ Isi produk tidak boleh kosong. Silakan coba lagi.",
+                                reply_markup=cancel_keyboard,
+                            )
+                            return
+
+                        product_data["contents"].append(content)
+                        current_count = len(product_data["contents"])
+                        total_count = product_data["content_count"]
+
+                        if current_count < total_count:
+                            # Ask for next content
+                            set_admin_state(
+                                context.user_data,
+                                "add_product_step",
+                                step="content_input",
+                                product_data=product_data,
+                            )
+                            await update.message.reply_text(
+                                f"✅ Isi produk ke-{current_count} tersimpan!\n\n"
+                                f"Langkah 6/6: Kirim <b>isi produk ke-{current_count + 1} dari {total_count}</b>\n\n"
+                                f"📦 Progress: {current_count}/{total_count}",
+                                reply_markup=cancel_keyboard,
+                                parse_mode=ParseMode.HTML,
+                            )
+                            return
+
+                        # All contents collected, create product
+                        try:
+                            from src.services.product_content import add_content
+
+                            # Create product with stock = 0 first
                             product_id = await add_product(
-                                category_id=None,  # No category needed
+                                category_id=None,
                                 code=product_data["code"],
                                 name=product_data["name"],
                                 description=product_data["description"],
                                 price_cents=product_data["price_cents"],
-                                stock=product_data["stock"],
+                                stock=0,  # Will be updated after adding contents
                             )
+
+                            # Add all contents
+                            added_count = 0
+                            for content in product_data["contents"]:
+                                try:
+                                    await add_content(product_id, content)
+                                    added_count += 1
+                                except Exception as content_exc:
+                                    logger.warning(
+                                        "Failed to add content '%s...': %s",
+                                        content[:20],
+                                        content_exc,
+                                    )
+
+                            # Update stock based on actual added contents
+                            from src.services.product_content import recalculate_stock
+
+                            actual_stock = await recalculate_stock(product_id)
 
                             response = (
                                 f"✅ <b>Produk berhasil ditambahkan!</b>\n\n"
@@ -1394,7 +1464,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                                 f"📦 Kode: <code>{product_data['code']}</code>\n"
                                 f"📝 Nama: <b>{product_data['name']}</b>\n"
                                 f"💰 Harga: <b>{format_rupiah(product_data['price_cents'])}</b>\n"
-                                f"📊 Stok: <b>{product_data['stock']}</b> pcs\n"
+                                f"📊 Stok: <b>{actual_stock}</b> pcs (dari {added_count} isi produk)\n"
                                 f"📄 Deskripsi: {product_data['description'] or '-'}"
                             )
 
@@ -1441,6 +1511,112 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                             return
 
                     return
+                elif state.action == "add_stock_content":
+                    # Handle add stock content input
+                    product_id = state.payload.get("product_id")
+                    step = state.payload.get("step", "count")
+
+                    cancel_keyboard = InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "❌ Batal", callback_data="admin:cancel"
+                                )
+                            ]
+                        ]
+                    )
+
+                    if step == "count":
+                        # Get count of contents to add
+                        try:
+                            count = int(text.strip())
+                            if count <= 0:
+                                await update.message.reply_text(
+                                    "❌ Jumlah harus lebih dari 0. Silakan coba lagi.",
+                                    reply_markup=cancel_keyboard,
+                                )
+                                return
+                        except ValueError:
+                            await update.message.reply_text(
+                                "❌ Format tidak valid. Kirim angka (contoh: 5).",
+                                reply_markup=cancel_keyboard,
+                            )
+                            return
+
+                        set_admin_state(
+                            context.user_data,
+                            "add_stock_content",
+                            product_id=product_id,
+                            step="input",
+                            count=count,
+                            contents=[],
+                        )
+
+                        await update.message.reply_text(
+                            f"➕ <b>Tambah Isi Produk</b>\n\n"
+                            f"Kirim isi produk ke-1 dari {count}:",
+                            reply_markup=cancel_keyboard,
+                            parse_mode=ParseMode.HTML,
+                        )
+                        return
+                    elif step == "input":
+                        # Collect content input
+                        content = text.strip()
+                        if not content:
+                            await update.message.reply_text(
+                                "❌ Isi produk tidak boleh kosong. Silakan coba lagi.",
+                                reply_markup=cancel_keyboard,
+                            )
+                            return
+
+                        contents = state.payload.get("contents", [])
+                        contents.append(content)
+                        current = len(contents)
+                        total = state.payload.get("count", 1)
+
+                        if current < total:
+                            # Ask for next content
+                            set_admin_state(
+                                context.user_data,
+                                "add_stock_content",
+                                product_id=product_id,
+                                step="input",
+                                count=total,
+                                contents=contents,
+                            )
+                            await update.message.reply_text(
+                                f"✅ Isi produk ke-{current} tersimpan!\n\n"
+                                f"Kirim isi produk ke-{current + 1} dari {total}:",
+                                reply_markup=cancel_keyboard,
+                                parse_mode=ParseMode.HTML,
+                            )
+                            return
+
+                        # All contents collected, save to DB
+                        from src.services.product_content import (
+                            add_content,
+                            recalculate_stock,
+                        )
+
+                        added = 0
+                        for c in contents:
+                            try:
+                                await add_content(product_id, c)
+                                added += 1
+                            except Exception as exc:
+                                logger.warning("Failed to add content: %s", exc)
+
+                        new_stock = await recalculate_stock(product_id)
+                        clear_admin_state(context.user_data)
+
+                        await update.message.reply_text(
+                            f"✅ Berhasil menambahkan {added} isi produk!\n\n"
+                            f"Stok baru: <b>{new_stock}</b> pcs",
+                            parse_mode=ParseMode.HTML,
+                        )
+                        return
+
+                    return
                 elif state.action == "edit_product_value":
                     # Handle field value input for edit product
                     product_id = state.payload.get("product_id")
@@ -1465,10 +1641,6 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                             price_cents = parse_price_to_cents(value)
                             await edit_product(product_id, price_cents=price_cents)
                             response = f"✅ Harga produk berhasil diupdate menjadi: <b>{format_rupiah(price_cents)}</b>"
-                        elif field == "stock":
-                            stock = int(value)
-                            await edit_product(product_id, stock=stock)
-                            response = f"✅ Stok produk berhasil diupdate menjadi: <b>{stock}</b> pcs"
                         elif field == "description":
                             await edit_product(product_id, description=value)
                             response = f"✅ Deskripsi produk berhasil diupdate"
@@ -2233,7 +2405,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             await update.effective_message.reply_text(
                 "➕ <b>Tambah Produk Baru</b>\n\n"
-                "Langkah 1/5: Kirim <b>kode produk</b> (contoh: NETFLIX1M, SPOTIFY1T)\n\n"
+                "Langkah 1/6: Kirim <b>kode produk</b> (contoh: NETFLIX1M, SPOTIFY1T)\n\n"
                 "💡 Kode produk adalah identifikasi unik untuk produk ini.",
                 reply_markup=cancel_keyboard,
                 parse_mode=ParseMode.HTML,
@@ -2550,8 +2722,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     ],
                     [
                         InlineKeyboardButton(
-                            "📊 Edit Stok",
-                            callback_data=f"admin:edit_field:stock:{product_id}",
+                            "📦 Kelola Stok (Isi Produk)",
+                            callback_data=f"admin:manage_stock:{product_id}",
                         )
                     ],
                     [
@@ -2593,7 +2765,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             field_names = {
                 "name": "nama produk",
                 "price": "harga (contoh: 50000)",
-                "stock": "stok (contoh: 100)",
                 "description": "deskripsi produk",
             }
 
@@ -2601,6 +2772,217 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 f"📝 <b>Edit {field_names.get(field, field)}</b>\n\n"
                 f"Kirim nilai baru untuk {field_names.get(field, field)}:",
                 reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data.startswith("admin:manage_stock:"):
+            # Handle stock management (add/remove product contents)
+            product_id = int(data.split(":")[2])
+            product = await get_product(product_id)
+            if not product:
+                await update.effective_message.reply_text(
+                    "❌ Produk tidak ditemukan.", parse_mode=ParseMode.HTML
+                )
+                return
+
+            from src.services.product_content import get_content_count
+
+            content_count = await get_content_count(product_id, used=False)
+
+            stock_keyboard = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "➕ Tambah Isi Produk",
+                            callback_data=f"admin:add_stock_content:{product_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "🗑️ Hapus Isi Produk",
+                            callback_data=f"admin:remove_stock_content:{product_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "📋 Lihat Semua Isi",
+                            callback_data=f"admin:view_stock_content:{product_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "🔙 Kembali",
+                            callback_data=f"admin:edit_product_select:{product_id}",
+                        )
+                    ],
+                ]
+            )
+
+            await update.effective_message.edit_text(
+                f"📦 <b>Kelola Stok Produk</b>\n\n"
+                f"<b>Produk:</b> {product.name}\n"
+                f"<b>Stok Tersedia:</b> {content_count} pcs\n\n"
+                f"💡 <i>Stok otomatis dihitung dari jumlah isi produk yang belum terpakai.</i>\n\n"
+                f"Pilih aksi:",
+                reply_markup=stock_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data.startswith("admin:add_stock_content:"):
+            # Add stock content
+            product_id = int(data.split(":")[2])
+            set_admin_state(
+                context.user_data,
+                "add_stock_content",
+                product_id=product_id,
+                step="count",
+            )
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
+            )
+            await update.effective_message.reply_text(
+                "➕ <b>Tambah Isi Produk</b>\n\n"
+                "Kirim jumlah isi produk yang ingin ditambahkan (contoh: 5):",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data.startswith("admin:remove_stock_content:"):
+            # Remove stock content
+            product_id = int(data.split(":")[2])
+            from src.services.product_content import list_product_contents
+
+            contents = await list_product_contents(product_id, used=False, limit=20)
+            if not contents:
+                await update.effective_message.reply_text(
+                    "❌ Tidak ada isi produk yang bisa dihapus.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            set_admin_state(
+                context.user_data,
+                "remove_stock_content",
+                product_id=product_id,
+            )
+
+            # Show list of contents to delete
+            content_buttons = []
+            for idx, content in enumerate(contents[:10], 1):
+                content_preview = (
+                    content["content"][:30] + "..."
+                    if len(content["content"]) > 30
+                    else content["content"]
+                )
+                content_buttons.append(
+                    [
+                        InlineKeyboardButton(
+                            f"{idx}. {content_preview}",
+                            callback_data=f"admin:delete_content:{content['id']}:{product_id}",
+                        )
+                    ]
+                )
+            content_buttons.append(
+                [
+                    InlineKeyboardButton(
+                        "🔙 Kembali", callback_data=f"admin:manage_stock:{product_id}"
+                    )
+                ]
+            )
+
+            keyboard = InlineKeyboardMarkup(content_buttons)
+            await update.effective_message.edit_text(
+                f"🗑️ <b>Hapus Isi Produk</b>\n\nPilih isi produk yang ingin dihapus:",
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data.startswith("admin:delete_content:"):
+            # Delete specific content
+            parts = data.split(":")
+            content_id = int(parts[2])
+            product_id = int(parts[3])
+
+            from src.services.product_content import (
+                delete_product_content,
+                recalculate_stock,
+            )
+
+            try:
+                await delete_product_content(content_id)
+                new_stock = await recalculate_stock(product_id)
+                await update.effective_message.edit_text(
+                    f"✅ Isi produk berhasil dihapus!\n\n"
+                    f"Stok baru: <b>{new_stock}</b> pcs",
+                    parse_mode=ParseMode.HTML,
+                )
+                await asyncio.sleep(2)
+                # Redirect back to manage stock
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="Klik tombol di bawah untuk kembali ke menu kelola stok:",
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "📦 Kelola Stok",
+                                    callback_data=f"admin:manage_stock:{product_id}",
+                                )
+                            ]
+                        ]
+                    ),
+                )
+            except Exception as exc:
+                await update.effective_message.edit_text(
+                    f"❌ Gagal menghapus isi produk: {exc}",
+                    parse_mode=ParseMode.HTML,
+                )
+            return
+        elif data.startswith("admin:view_stock_content:"):
+            # View all stock contents
+            product_id = int(data.split(":")[2])
+            from src.services.product_content import list_product_contents
+
+            contents = await list_product_contents(product_id, used=False, limit=50)
+            if not contents:
+                await update.effective_message.edit_text(
+                    "❌ Tidak ada isi produk tersedia.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            content_list = []
+            for idx, content in enumerate(contents[:20], 1):
+                content_preview = (
+                    content["content"][:50] + "..."
+                    if len(content["content"]) > 50
+                    else content["content"]
+                )
+                content_list.append(f"{idx}. <code>{content_preview}</code>")
+
+            message = (
+                f"📋 <b>Daftar Isi Produk</b>\n\n"
+                f"Total: {len(contents)} isi\n"
+                f"Menampilkan {min(20, len(contents))} pertama:\n\n"
+                + "\n".join(content_list)
+            )
+
+            keyboard = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🔙 Kembali",
+                            callback_data=f"admin:manage_stock:{product_id}",
+                        )
+                    ]
+                ]
+            )
+
+            await update.effective_message.edit_text(
+                message,
+                reply_markup=keyboard,
                 parse_mode=ParseMode.HTML,
             )
             return
