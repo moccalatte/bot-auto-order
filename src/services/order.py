@@ -152,3 +152,58 @@ async def ensure_order_can_transition(
             order_id,
             note,
         )
+
+
+async def get_last_order_for_user(telegram_id: int) -> Dict[str, Any] | None:
+    """Fetch the latest order (and latest payment status) for given Telegram user."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            WITH target_user AS (
+                SELECT id FROM users WHERE telegram_id = $1 LIMIT 1
+            )
+            SELECT
+                o.id,
+                o.status,
+                o.total_price_cents,
+                o.created_at,
+                o.updated_at,
+                p.gateway_order_id,
+                p.status AS payment_status,
+                p.updated_at AS payment_updated_at
+            FROM orders o
+            JOIN target_user tu ON o.user_id = tu.id
+            LEFT JOIN LATERAL (
+                SELECT gateway_order_id, status, updated_at
+                FROM payments
+                WHERE order_id = o.id
+                ORDER BY updated_at DESC NULLS LAST
+                LIMIT 1
+            ) p ON TRUE
+            ORDER BY o.created_at DESC
+            LIMIT 1;
+            """,
+            telegram_id,
+        )
+    return dict(row) if row else None
+
+
+async def list_order_items(order_id: int) -> List[Dict[str, Any]]:
+    """Return items for a given order with product metadata."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                oi.product_id,
+                oi.quantity,
+                oi.unit_price_cents,
+                p.name AS product_name
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            WHERE oi.order_id = $1;
+            """,
+            order_id,
+        )
+    return [dict(row) for row in rows]

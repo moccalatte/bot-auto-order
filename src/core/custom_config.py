@@ -21,6 +21,13 @@ ALLOWED_PLACEHOLDERS = {
     "harga",
     "tanggal",
     "status",
+    "store_name",
+    "total_users",
+    "total_transactions",
+    "telegram_id",
+    "saldo",
+    "bank_id",
+    "verified",
 }
 
 

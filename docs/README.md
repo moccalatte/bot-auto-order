@@ -1,7 +1,7 @@
 # 📚 Documentation Index – Bot Auto Order Telegram
 
-**Version:** 0.2.2  
-**Last Updated:** 2025-01-16  
+**Version:** 0.5.3  
+**Last Updated:** 2025-11-07  
 **Status:** ✅ Production Ready
 
 ---

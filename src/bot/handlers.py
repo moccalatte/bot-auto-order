@@ -7,7 +7,7 @@ import html
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, Sequence
+from typing import Any, Dict, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
 from telegram import (
@@ -85,11 +85,14 @@ from src.services.calculator import (
     update_config,
 )
 from src.services.users import (
+    get_user_profile,
     is_user_blocked,
     list_broadcast_targets,
     list_users,
     mark_user_bot_blocked,
+    update_user_profile,
 )
+from src.services.order import get_last_order_for_user, list_order_items
 from src.services.broadcast_queue import (
     create_job as create_broadcast_job,
     fetch_pending_targets,
@@ -107,9 +110,224 @@ from src.services.terms import (
     record_terms_submission,
     purge_old_submissions,
 )
+from src.services.payment_messages import (
+    record_payment_message,
+    delete_payment_messages,
+)
 
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_BANK_ID = "524107"
+CARA_ORDER_TEXT_KEY = "template.cara_order.text"
+CARA_ORDER_PHOTO_KEY = "template.cara_order.photo_id"
+DEFAULT_CARA_ORDER_TEXT = (
+    "📘 <b>Cara Order</b>\n\n"
+    "1. Pilih produk dari katalog atau ketik angka sesuai produk favorit kamu.\n"
+    "2. Tekan tombol <b>Tambahkan ke Keranjang</b> untuk memasukkan produk ke keranjang.\n"
+    "3. Lanjutkan ke pembayaran dan selesaikan transaksi sebelum waktu habis.\n"
+    "4. Setelah pembayaran sukses, detail produk otomatis dikirim ke chat kamu.\n\n"
+    "Butuh bantuan? Hubungi admin melalui menu INFORMASI."
+)
+
+
+class _TemplateSafeDict(dict):
+    """Fallback dict that keeps unknown placeholders intact."""
+
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
+def _apply_template(text: str, **kwargs: Any) -> str:
+    """Render template safely, leaving unknown placeholders untouched."""
+    try:
+        return text.format_map(_TemplateSafeDict(**kwargs))
+    except Exception:
+        return text
+
+
+def _get_config_manager(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> Optional[CustomConfigManager]:
+    manager = context.application.bot_data.get("custom_config_mgr")
+    return manager if isinstance(manager, CustomConfigManager) else None
+
+
+async def _get_cara_order_template(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> Tuple[str, Optional[str]]:
+    manager = _get_config_manager(context)
+    if not manager:
+        return DEFAULT_CARA_ORDER_TEXT, None
+
+    text = await manager.get_config(CARA_ORDER_TEXT_KEY) or DEFAULT_CARA_ORDER_TEXT
+    photo_id = await manager.get_config(CARA_ORDER_PHOTO_KEY) or None
+    if photo_id == "":
+        photo_id = None
+    return text, photo_id
+
+
+async def _save_cara_order_template(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    text: str,
+    actor_id: int,
+    photo_file_id: Optional[str] = None,
+) -> None:
+    manager = _get_config_manager(context)
+    if not manager:
+        return
+    await manager.set_config(CARA_ORDER_TEXT_KEY, text, actor_id=actor_id)
+    await manager.db.set_config(
+        CARA_ORDER_PHOTO_KEY, photo_file_id or "", updated_by=actor_id
+    )
+
+
+def _extract_display_name(
+    profile: Optional[Dict[str, Any]], user: Optional[User]
+) -> str:
+    if profile:
+        display_name = profile.get("display_name")
+        if display_name:
+            return str(display_name)
+    if user and user.first_name:
+        return user.first_name
+    if user and user.username:
+        return user.username
+    return "Customer"
+
+
+def _build_user_info_message(
+    profile: Optional[Dict[str, Any]],
+    *,
+    user: Optional[User],
+) -> str:
+    telegram_id = profile.get("telegram_id") if profile else (user.id if user else None)
+    balance_cents = int(profile.get("balance_cents") or 0) if profile else 0
+    bank_id = profile.get("bank_id") if profile else None
+    verified = bool(profile.get("is_verified")) if profile else False
+    balance_text = format_rupiah(balance_cents)
+    display_name = _extract_display_name(profile, user)
+    verified_text = str(verified).lower()
+    bank_text = bank_id or DEFAULT_BANK_ID
+    telegram_display = telegram_id if telegram_id is not None else "-"
+    return (
+        "ℹ️ <b>Informasi Akun Kamu</b>\n\n"
+        f"ᯓ Nama: {html.escape(display_name)}\n"
+        f"ᯓ Saldo: {balance_text}\n"
+        f"ᯓ Bank ID: {bank_text}\n"
+        f"ᯓ Terverifikasi: {verified_text}\n"
+        f"ᯓ User ID: {telegram_display}"
+    )
+
+
+def _build_profile_settings_message(
+    profile: Optional[Dict[str, Any]], user: Optional[User]
+) -> str:
+    display_name = _extract_display_name(profile, user)
+    username_value = profile.get("display_name") if profile else None
+    whatsapp_value = profile.get("whatsapp_number") if profile else None
+    username_text = username_value or "Anonymous"
+    whatsapp_text = whatsapp_value or "null"
+    return (
+        f"Halo <b>{html.escape(display_name)}</b>, Ini adalah beberapa konfigurasi dari data kamu 👋🏻\n\n"
+        "<b>Detail User</b>\n\n"
+        f"- <b>Username:</b> {html.escape(username_text)}\n"
+        f"- <b>No Whatsapp:</b> {html.escape(whatsapp_text)}\n\n"
+        "Disini anda bisa mengatur beberapa pengaturan bot, klik tombol di bawah untuk mengatur pengaturan bot."
+    )
+
+
+def _build_customer_service_message(settings) -> str:
+    admin_ids = list(settings.telegram_admin_ids or [])
+    owner_ids = list(settings.telegram_owner_ids or [])
+    if not admin_ids:
+        admin_ids = owner_ids
+    if not admin_ids:
+        return (
+            "👨‍💼 <b>Customer Service</b>\n\n"
+            "Belum ada kontak admin yang terdaftar. Silakan hubungi owner bot secara langsung."
+        )
+    lines = ["👨‍💼 <b>Customer Service</b>\n"]
+    for idx, admin_id in enumerate(admin_ids, start=1):
+        lines.append(f'• <a href="tg://user?id={admin_id}">Hubungi Admin {idx}</a>')
+    lines.append(
+        "\nTim admin siap membantu kamu menyelesaikan transaksi atau memverifikasi pembayaran manual."
+    )
+    return "\n".join(lines)
+
+
+def _build_stock_overview_message(
+    products: Sequence[Product],
+    *,
+    tz_name: str,
+) -> str:
+    now_utc = datetime.now(timezone.utc)
+    try:
+        local_dt = now_utc.astimezone(ZoneInfo(tz_name))
+    except Exception:
+        local_dt = now_utc
+    timestamp = f"{local_dt.month}/{local_dt.day}/{local_dt.year}, {local_dt.strftime('%I:%M:%S %p')}"
+    lines = []
+    for idx, product in enumerate(products, start=1):
+        lines.append(f"<b>— {idx}. {html.escape(product.name)} ➜ {product.stock}x</b>")
+    body = "\n".join(lines) if lines else "<i>Belum ada produk.</i>"
+    return (
+        "📦 <b>Informasi Stok</b>\n"
+        f"- Tanggal: {timestamp}\n\n"
+        f"{body}\n\n"
+        "Untuk membeli produk ketik angka yang ingin kamu beli."
+    )
+
+
+async def _build_last_transaction_message(
+    telegram_id: int,
+    *,
+    settings,
+) -> str:
+    order = await get_last_order_for_user(telegram_id)
+    if not order:
+        return (
+            "🧾 <b>Transaksi Terakhir</b>\n\n"
+            "Belum ada transaksi tercatat. Yuk mulai belanja!"
+        )
+    order_id = int(order["id"])
+    order_id_str = str(order_id)
+    total_cents = int(order.get("total_price_cents") or 0)
+    total_text = format_rupiah(total_cents)
+    status = str(order.get("status") or "-").upper()
+    payment_status = str(order.get("payment_status") or "-").upper()
+    gateway_order_id = order.get("gateway_order_id") or "-"
+    created_at = order.get("created_at")
+    try:
+        tz = ZoneInfo(settings.bot_timezone)
+    except Exception:
+        tz = timezone.utc
+    if isinstance(created_at, datetime):
+        created_local = created_at.astimezone(tz)
+    else:
+        created_local = datetime.now(tz)
+    timestamp = created_local.strftime("%d/%m/%Y %H:%M")
+    items = await list_order_items(order_id)
+    item_lines = []
+    for idx, item in enumerate(items, start=1):
+        product_name = html.escape(item.get("product_name") or f"Produk {idx}")
+        quantity = int(item.get("quantity") or 0)
+        unit_price_cents = int(item.get("unit_price_cents") or 0)
+        line_total = format_rupiah(unit_price_cents * quantity)
+        item_lines.append(f"{idx}. {product_name} x{quantity} = {line_total}")
+    items_block = "\n".join(item_lines) if item_lines else "-"
+    return (
+        "🧾 <b>Transaksi Terakhir</b>\n\n"
+        f"<b>Order ID:</b> <code>{order_id_str}</code>\n"
+        f"<b>Gateway ID:</b> <code>{gateway_order_id}</code>\n"
+        f"<b>Status Order:</b> {status}\n"
+        f"<b>Status Pembayaran:</b> {payment_status}\n"
+        f"<b>Total:</b> {total_text}\n"
+        f"<b>Tanggal:</b> {timestamp}\n\n"
+        "<b>Produk:</b>\n"
+        f"{items_block}"
+    )
 
 
 async def _send_welcome_message(
@@ -153,6 +371,12 @@ async def _send_welcome_message(
     # Send welcome message with reply keyboard (no extra messages)
     await target_message.reply_text(
         welcome_text,
+        reply_markup=keyboards.welcome_inline_keyboard(),
+        parse_mode=ParseMode.HTML,
+    )
+
+    await target_message.reply_text(
+        "⌨️ Menu utama tersedia di keyboard bawah. Pilih angka atau menu yang kamu butuhkan ya!",
         reply_markup=reply_keyboard,
         parse_mode=ParseMode.HTML,
     )
@@ -372,6 +596,7 @@ async def _notify_admin_new_order(
     order_id: str,
     method: str,
     created_at: str,
+    gateway_order_id: str,
 ) -> None:
     """Send new order notification to seller/admins."""
     recipients = _get_seller_recipient_ids(context)
@@ -408,10 +633,17 @@ async def _notify_admin_new_order(
     )
     for admin_id in recipients:
         try:
-            await context.bot.send_message(
+            sent_message = await context.bot.send_message(
                 chat_id=admin_id,
                 text=message_text,
                 parse_mode=ParseMode.HTML,
+            )
+            await record_payment_message(
+                gateway_order_id=gateway_order_id,
+                chat_id=sent_message.chat_id,
+                message_id=sent_message.message_id,
+                role="admin_order_alert",
+                message_kind="text",
             )
         except TelegramError as exc:  # pragma: no cover - network failure
             logger.warning(
@@ -718,6 +950,66 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id_str = str(user.id) if user else ""
     is_admin = user_id_str in admin_ids
 
+    profile_state = context.user_data.get("profile_edit")
+    if profile_state:
+        field = profile_state.get("field")
+        if text.lower() == "batal":
+            context.user_data.pop("profile_edit", None)
+            await update.message.reply_text(
+                "✅ Pengaturan dibatalkan.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        if user is None:
+            context.user_data.pop("profile_edit", None)
+            await update.message.reply_text(
+                "⚠️ Tidak dapat memperbarui profil tanpa informasi user.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        if field == "display_name":
+            candidate = text.strip()
+            if not (3 <= len(candidate) <= 32):
+                await update.message.reply_text(
+                    "⚠️ Username harus 3-32 karakter.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+            await update_user_profile(user.id, display_name=candidate)
+            context.user_data.pop("profile_edit", None)
+            await update.message.reply_text(
+                "✅ Username berhasil diperbarui.",
+                parse_mode=ParseMode.HTML,
+            )
+            profile = await get_user_profile(user.id)
+            await update.message.reply_text(
+                _build_profile_settings_message(profile, user),
+                reply_markup=keyboards.info_settings_keyboard(),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        if field == "whatsapp":
+            digits = "".join(ch for ch in text if ch.isdigit())
+            if not (9 <= len(digits) <= 15):
+                await update.message.reply_text(
+                    "⚠️ Nomor WhatsApp harus terdiri dari 9-15 digit.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+            await update_user_profile(user.id, whatsapp_number=digits)
+            context.user_data.pop("profile_edit", None)
+            await update.message.reply_text(
+                "✅ Nomor WhatsApp berhasil diperbarui.",
+                parse_mode=ParseMode.HTML,
+            )
+            profile = await get_user_profile(user.id)
+            await update.message.reply_text(
+                _build_profile_settings_message(profile, user),
+                reply_markup=keyboards.info_settings_keyboard(),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
     if is_admin:
         state = get_admin_state(context.user_data)
         if state:
@@ -974,6 +1266,22 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     response = await handle_generate_voucher_input(text, user.id)  # type: ignore[arg-type]
                 elif state.action == "delete_voucher":
                     response = await handle_delete_voucher_input(text, user.id)  # type: ignore[arg-type]
+                elif state.action == "edit_cara_order_message":
+                    stripped = text.strip()
+                    if not stripped:
+                        response = "⚠️ Teks Cara Order tidak boleh kosong."
+                    else:
+                        await _save_cara_order_template(
+                            context,
+                            text=stripped,
+                            actor_id=user.id,
+                            photo_file_id=None,
+                        )
+                        response = (
+                            "✅ Template <b>Cara Order</b> berhasil diperbarui.\n"
+                            "<i>Kirim foto + caption bila ingin menambahkan gambar panduan.</i>"
+                        )
+                    reply_kwargs["parse_mode"] = ParseMode.HTML
                 # Handle refund calculator states
                 elif "refund_calculator_state" in context.user_data:
                     calc_state = context.user_data["refund_calculator_state"]
@@ -1240,13 +1548,16 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if text == "🏷 Cek Stok":
-        products = await list_products(limit=10)
-        lines = [
-            f"{product.name} • 📦 {product.stock}x • 🔥 {product.sold_count}x"
-            for product in products
-        ]
+        products = await list_products()
+        _store_products(context, products)
+        settings = get_settings()
+        stock_message = _build_stock_overview_message(
+            products[:10], tz_name=settings.bot_timezone
+        )
         await update.message.reply_text(
-            "📦 Stok Teratas Saat Ini:\n" + "\n".join(lines[:10])
+            stock_message,
+            reply_markup=keyboards.stock_refresh_keyboard(),
+            parse_mode=ParseMode.HTML,
         )
         return
     if text == "📣 Broadcast Pesan":
@@ -1434,35 +1745,63 @@ async def media_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             media_type="photo",
         ):
             return
+    if message.photo and context.user_data.get("profile_edit"):
+        await message.reply_text(
+            "⚠️ Kirimkan data dalam bentuk teks ya. Foto tidak diperlukan untuk pengaturan profil.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
     user = update.effective_user
     admin_ids = context.bot_data.get("admin_ids", [])
     if user and str(user.id) in admin_ids and message.photo:
         state = get_admin_state(context.user_data)
-        if state and state.action == "broadcast_message":
-            file_id = message.photo[-1].file_id
-            caption = (message.caption or "").strip()
-            result = await _schedule_broadcast_job(
-                context,
-                actor_id=user.id,
-                text=caption,
-                media_file_id=file_id,
-                media_type="photo",
-            )
-            clear_admin_state(context.user_data)
-            if "job_id" not in result:
-                await message.reply_text(
-                    result.get("message", "⚠️ Broadcast gagal dijadwalkan."),
-                    reply_markup=ReplyKeyboardRemove(),
+        if state:
+            if state.action == "broadcast_message":
+                file_id = message.photo[-1].file_id
+                caption = (message.caption or "").strip()
+                result = await _schedule_broadcast_job(
+                    context,
+                    actor_id=user.id,
+                    text=caption,
+                    media_file_id=file_id,
+                    media_type="photo",
                 )
-            else:
-                await message.reply_text(
-                    _format_broadcast_summary(
-                        int(result["job_id"]),
-                        result.get("counts", {}),
-                    ),
-                    reply_markup=ReplyKeyboardRemove(),
+                clear_admin_state(context.user_data)
+                if "job_id" not in result:
+                    await message.reply_text(
+                        result.get("message", "⚠️ Broadcast gagal dijadwalkan."),
+                        reply_markup=ReplyKeyboardRemove(),
+                    )
+                else:
+                    await message.reply_text(
+                        _format_broadcast_summary(
+                            int(result["job_id"]),
+                            result.get("counts", {}),
+                        ),
+                        reply_markup=ReplyKeyboardRemove(),
+                    )
+                return
+            if state.action == "edit_cara_order_message":
+                file_id = message.photo[-1].file_id
+                caption = (message.caption or "").strip()
+                if not caption:
+                    await message.reply_text(
+                        "⚠️ Mohon sertakan caption saat mengirim foto untuk template Cara Order.",
+                        parse_mode=ParseMode.HTML,
+                    )
+                    return
+                await _save_cara_order_template(
+                    context,
+                    text=caption,
+                    actor_id=user.id,
+                    photo_file_id=file_id,
                 )
-            return
+                clear_admin_state(context.user_data)
+                await message.reply_text(
+                    "✅ Template <b>Cara Order</b> berhasil diperbarui dengan gambar.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
 
 
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1498,6 +1837,115 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
+    if data == "stock:refresh":
+        products = await list_products()
+        _store_products(context, products)
+        settings = get_settings()
+        stock_message = _build_stock_overview_message(
+            products[:10], tz_name=settings.bot_timezone
+        )
+        try:
+            await query.message.edit_text(
+                stock_message,
+                reply_markup=keyboards.stock_refresh_keyboard(),
+                parse_mode=ParseMode.HTML,
+            )
+        except TelegramError:
+            await query.message.reply_text(
+                stock_message,
+                reply_markup=keyboards.stock_refresh_keyboard(),
+                parse_mode=ParseMode.HTML,
+            )
+        await query.answer("Stok diperbarui")
+        return
+
+    if data == "welcome:info":
+        profile = await get_user_profile(user.id)
+        message_text = _build_user_info_message(profile, user=user)
+        await query.answer()
+        await query.message.reply_text(
+            message_text,
+            reply_markup=keyboards.info_menu_keyboard(),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if data == "welcome:howto":
+        profile = await get_user_profile(user.id)
+        display_name = _extract_display_name(profile, user)
+        text_template, photo_id = await _get_cara_order_template(context)
+        settings = get_settings()
+        rendered = _apply_template(
+            text_template,
+            nama=display_name,
+            store_name=settings.store_name,
+        )
+        await query.answer()
+        if photo_id:
+            await query.message.reply_photo(
+                photo=photo_id,
+                caption=rendered,
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await query.message.reply_text(
+                rendered,
+                parse_mode=ParseMode.HTML,
+            )
+        return
+
+    if data.startswith("profile:"):
+        await query.answer()
+        settings = get_settings()
+        profile = await get_user_profile(user.id)
+        if data == "profile:settings":
+            context.user_data.pop("profile_edit", None)
+            await query.message.reply_text(
+                _build_profile_settings_message(profile, user),
+                reply_markup=keyboards.info_settings_keyboard(),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        if data == "profile:cs":
+            await query.message.reply_text(
+                _build_customer_service_message(settings),
+                reply_markup=keyboards.info_menu_keyboard(),
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+            return
+        if data == "profile:last":
+            summary = await _build_last_transaction_message(user.id, settings=settings)
+            await query.message.reply_text(
+                summary,
+                reply_markup=keyboards.info_menu_keyboard(),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        if data == "profile:change_username":
+            context.user_data["profile_edit"] = {"field": "display_name"}
+            await query.message.reply_text(
+                "Kirim username baru kamu (3-32 karakter). Ketik <b>BATAL</b> untuk membatalkan.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        if data == "profile:change_whatsapp":
+            context.user_data["profile_edit"] = {"field": "whatsapp"}
+            await query.message.reply_text(
+                "Kirim nomor WhatsApp kamu tanpa spasi atau simbol. Ketik <b>BATAL</b> untuk membatalkan.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        if data == "profile:cancel":
+            context.user_data.pop("profile_edit", None)
+            await query.message.reply_text(
+                "✅ Pengaturan dibatalkan.",
+                reply_markup=keyboards.info_menu_keyboard(),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        return
+
     # --- Admin Menu Callback Integration ---
     # Only allow admin_ids to access admin callbacks
     admin_ids = context.bot_data.get("admin_ids", [])
@@ -1529,6 +1977,10 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "Hai {nama}! Selamat datang di {store_name}!\n\n"
                 "<b>🎉 Payment Success:</b>\n"
                 "Pembayaran berhasil untuk order {order_id}!\n\n"
+                "<b>📘 Cara Order:</b>\n"
+                "1. Pilih produk favorit kamu\n"
+                "2. Tambahkan ke keranjang\n"
+                "3. Selesaikan pembayaran sebelum waktu habis\n\n"
                 "<b>⚠️ Error Message:</b>\n"
                 "Maaf, terjadi kesalahan. Coba lagi ya!\n\n"
                 "<b>📦 Product Message:</b>\n"
@@ -1758,6 +2210,22 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "• <code>{nama}</code> - Nama user\n"
                 "• <code>{store_name}</code> - Nama toko\n"
                 "• <code>{total_users}</code> - Total pengguna",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif data == "admin:edit_cara_order":
+            set_admin_state(context.user_data, "edit_cara_order_message")
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
+            )
+            await update.effective_message.reply_text(
+                "📘 <b>Edit Cara Order</b>\n\n"
+                "Kirim teks panduan baru atau foto dengan caption untuk mengganti template Cara Order.\n\n"
+                "💡 Placeholder yang bisa dipakai:\n"
+                "• <code>{nama}</code> - Nama pengguna\n"
+                "• <code>{store_name}</code> - Nama toko\n\n"
+                "Kirim <b>❌ Batal</b> untuk membatalkan.",
                 reply_markup=cancel_keyboard,
                 parse_mode=ParseMode.HTML,
             )
@@ -2252,19 +2720,27 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             # Send invoice to user first
             qr_data = str(payment_data.get("payment_number", ""))
             if qr_data:
-                await query.message.reply_photo(
+                invoice_message = await query.message.reply_photo(
                     photo=qris_to_image(qr_data),
                     caption=invoice_text,
                     parse_mode=ParseMode.HTML,
                     reply_markup=keyboards.invoice_keyboard(payload["payment_url"]),
                 )
             else:
-                await query.message.reply_text(
+                invoice_message = await query.message.reply_text(
                     invoice_text
                     + "\n\n(⚠️ QR tidak tersedia, gunakan tautan checkout.)",
                     parse_mode=ParseMode.HTML,
                     reply_markup=keyboards.invoice_keyboard(payload["payment_url"]),
                 )
+
+            await record_payment_message(
+                gateway_order_id=gateway_order_id,
+                chat_id=invoice_message.chat_id,
+                message_id=invoice_message.message_id,
+                role="user_invoice",
+                message_kind="photo" if qr_data else "text",
+            )
 
             # Delete loading message
             try:
@@ -2280,6 +2756,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 order_id=str(payload.get("order_id", "")),
                 method=action,
                 created_at=str(payload.get("created_at")),
+                gateway_order_id=gateway_order_id,
             )
 
             # Clear cart after successful payment creation

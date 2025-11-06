@@ -4,6 +4,54 @@ Dokumen ini mencatat riwayat perubahan, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
+## [0.5.3] – 2025-11-07 (Info Panel, QRIS Fix, Expiry Cleanup)
+
+### Added
+- **Inline Info & Cara Order Panel**  
+  - Welcome message kini memuat tombol `ℹ️ INFORMASI` & `📘 Cara Order`.  
+  - Informasi akun menampilkan saldo, status verifikasi, Bank ID, dan ID Telegram serta menyediakan tombol Settings/Customer Service/Last Transaction.  
+  - User dapat memperbarui display name dan nomor WhatsApp langsung dari bot.  
+  - Cara Order dapat dikustomisasi (teks + gambar) lewat menu `🛠 Kelola Respon Bot` → `📘 Edit Cara Order`.  
+  - Files: `src/bot/handlers.py`, `src/bot/keyboards.py`, `src/bot/messages.py`, `src/services/users.py`, `src/services/order.py`, `src/core/custom_config.py`.
+
+- **Stock Overview Refresh**  
+  - Tombol `🏷 Cek Stok` menampilkan daftar stok dengan penomoran konsisten, timestamp lokal, serta tombol `🔄 Refresh`.  
+  - Files: `src/bot/handlers.py`, `src/bot/keyboards.py`.
+
+- **Payment Message Tracking Store**  
+  - Modul baru `src/services/payment_messages.py` mencatat message_id invoice dan notifikasi admin untuk manajemen otomatis saat kadaluarsa/berhasil.
+
+### Fixed
+- **QRIS Amount Sent in Rupiah** (#1)  
+  - Pakasir client kini mengirim nominal dalam Rupiah (bukan cents) sehingga QR dan checkout URL menampilkan harga yang benar.  
+  - Files: `src/services/pakasir.py`.
+
+- **Expiry Cleanup & Admin Notification** (#2)  
+  - Job `check_expired_payments_job` menandai pembayaran gagal, menghapus pesan invoice lama, mengirim notifikasi pembatalan baru ke user, serta mengganti pesan admin dengan status dibatalkan.  
+  - Files: `src/core/tasks.py`, `src/bot/handlers.py`, `src/services/payment.py`.
+
+- **Welcome Copy Revamp** (#3 & #7)  
+  - Pesan welcome diganti menjadi format bold bersih sesuai brief; inline + reply keyboard dikirim sekaligus; template default dirapikan.  
+  - Files: `src/bot/messages.py`, `src/bot/handlers.py`.
+
+- **Customer Info Panel** (#4)  
+  - Menambahkan panel informasi akun lengkap beserta submenu Settings, Customer Service, dan Last Transaction.  
+  - Files: `src/bot/handlers.py`, `src/services/users.py`, `src/services/order.py`.
+
+- **Cara Order Customization** (#5)  
+  - Admin dapat mengedit template Cara Order termasuk dukungan foto + caption.  
+  - Files: `src/bot/admin/admin_menu.py`, `src/bot/handlers.py`.
+
+- **Stock Message Formatting** (#6 & #7)  
+  - Pesan stok kini berformat tebal dengan urutan sesuai katalog dan dukungan refresh inline.  
+  - Files: `src/bot/handlers.py`, `src/bot/keyboards.py`.
+
+### Testing
+- `python -m compileall src`
+- `python -m compileall tests`
+
+---
+
 ## [0.5.2] – 2025-11-07 (Hotfix: PaymentService SyntaxError)
 
 ### Fixed

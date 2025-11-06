@@ -9,6 +9,20 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMa
 from src.services.catalog import Category, Product
 
 
+def welcome_inline_keyboard() -> InlineKeyboardMarkup:
+    """Inline actions displayed on welcome message."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(text="ℹ️ INFORMASI", callback_data="welcome:info"),
+                InlineKeyboardButton(
+                    text="📘 Cara Order", callback_data="welcome:howto"
+                ),
+            ]
+        ]
+    )
+
+
 def main_reply_keyboard(product_numbers: Sequence[int]) -> ReplyKeyboardMarkup:
     """Build main reply keyboard with emoji entries."""
     numbers_row = [f"{index}️⃣" for index in product_numbers]
@@ -137,4 +151,47 @@ def snk_confirmation_keyboard(notification_id: int) -> InlineKeyboardMarkup:
                 )
             ]
         ]
+    )
+
+
+def info_menu_keyboard() -> InlineKeyboardMarkup:
+    """Inline keyboard for user info panel."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    text="⚙️ Settings", callback_data="profile:settings"
+                ),
+                InlineKeyboardButton(
+                    text="👨‍💼 Customer Service", callback_data="profile:cs"
+                ),
+                InlineKeyboardButton(
+                    text="🧾 Last Transaction", callback_data="profile:last"
+                ),
+            ]
+        ]
+    )
+
+
+def info_settings_keyboard() -> InlineKeyboardMarkup:
+    """Inline keyboard for user settings choices."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    text="✏️ ubah username", callback_data="profile:change_username"
+                ),
+                InlineKeyboardButton(
+                    text="📱 ubah whatsapp", callback_data="profile:change_whatsapp"
+                ),
+                InlineKeyboardButton(text="❌ batal", callback_data="profile:cancel"),
+            ]
+        ]
+    )
+
+
+def stock_refresh_keyboard() -> InlineKeyboardMarkup:
+    """Inline keyboard with refresh button for stock overview."""
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(text="🔄 Refresh", callback_data="stock:refresh")]]
     )

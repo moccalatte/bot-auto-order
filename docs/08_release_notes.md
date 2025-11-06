@@ -4,6 +4,27 @@ Dokumen ini mencatat perubahan penting, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
+## Version 0.5.3 – 2025-11-07
+### Added
+- **Inline Info Panel**: Welcome message menampilkan tombol `ℹ️ INFORMASI` dan `📘 Cara Order` untuk akses cepat ke profil, customer service, serta panduan kustom (teks & foto).
+- **User Self-Service**: Pengguna dapat memperbarui display name dan nomor WhatsApp langsung dari bot; admin dapat mengedit template Cara Order dari menu respon.
+- **Stock Refresh UI**: Cek stok kini menampilkan daftar bernomor lengkap dengan tombol `🔄 Refresh` dan timestamp lokal.
+- **Payment Message Ledger**: Invoice dan notifikasi admin dicatat sehingga bisa dihapus/ditimpa otomatis saat pembayaran expired atau sukses.
+
+### Fixed
+- **Nominal QRIS Salah (Issue #1)**: Amount ke Pakasir kini dikirim dalam Rupiah, memperbaiki QR & checkout URL yang berlipat.
+- **Pesan Expired Tidak Dibersihkan (Issue #2)**: Job kadaluarsa sekarang menghapus pesan invoice lama, mengganti notifikasi admin menjadi status dibatalkan, dan mengirim pesan baru kepada user.
+- **Welcome Copy & Bold Formatting (Issue #3 & #7)**: Pesan welcome diperbarui sesuai brief dengan highlight statistik, inline action, dan keyboard utama.
+- **Panel Informasi (Issue #4)**: Menampilkan nama, saldo, bank ID, status verifikasi, dan riwayat transaksi langsung di bot.
+- **Custom Cara Order (Issue #5)**: Template cara order mendukung teks + gambar dan bisa diedit via menu admin.
+- **Format Cek Stok (Issue #6 & #7)**: Pesan stok konsisten dengan daftar produk dan lebih mudah dibaca.
+
+### Testing
+- `python -m compileall src`
+- `python -m compileall tests`
+
+---
+
 ## Version 0.5.2 – 2025-11-07
 ### Fixed
 - **Bot Startup SyntaxError**: Menghapus fragmen markup `</parameter></invoke>` yang tersisa di `src/services/payment.py` dan menyebabkan bot crash saat `run_stack.sh` dijalankan.

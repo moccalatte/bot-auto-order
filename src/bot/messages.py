@@ -17,12 +17,13 @@ def welcome_message(
     total_transactions: int,
 ) -> str:
     """Welcome text for /start command."""
+    users_text = f"{total_users:,}".replace(",", ".")
+    transactions_text = f"{total_transactions:,}".replace(",", ".")
     return (
-        f"🌟 Hai, <b>{mention}</b>! 👋🏻\n\n"
-        f"🎪 Selamat datang di <b>{store_name}</b> 🎉\n\n"
-        f"📊 <b>Statistik Kami:</b>\n"
-        f"🙍🏻‍♂️ Total Pengguna Bot: <b>{total_users:,}</b> orang\n"
-        f"💼 Transaksi Tuntas: <b>{total_transactions:,}</b>x\n\n"
+        f"<b>—  Hai, {mention}</b> 👋🏻\n\n"
+        f"🎪 Selamat datang di <b>{store_name}</b> 🎉\n"
+        f"🙍🏻‍♂️ <b>Total Pengguna Bot: {users_text} orang</b>\n"
+        f"🎯 <b>Transaksi Tuntas: {transactions_text}x</b>\n\n"
         "🛒 Silakan pilih kategori atau gunakan tombol di bawah untuk jelajahi katalog kami!"
     )
 
@@ -151,10 +152,11 @@ def payment_invoice_detail(
 def payment_expired(invoice_id: str) -> str:
     """Notify that invoice has expired."""
     return (
-        f"📜 <b>Tagihan Kadaluarsa</b>\n<code>{invoice_id}</code>\n\n"
-        "⚠️ Tagihan kamu sudah tidak aktif.\n"
-        "🔁 Silakan ulangi pembelian untuk mendapatkan tagihan QRIS baru.\n"
-        "💬 Kalau butuh bantuan, hubungi admin ya!"
+        f"❌ <b>Pesanan Dibatalkan</b>\n<code>{invoice_id}</code>\n\n"
+        "⏰ Waktu pembayaran habis sehingga tagihan dibatalkan otomatis.\n"
+        "📦 Stok produk sudah dikembalikan dan order ditutup.\n\n"
+        "🔄 Silakan buat pesanan baru bila masih ingin melanjutkan.\n"
+        "💬 Hubungi admin kalau butuh bantuan tambahan."
     )
 
 

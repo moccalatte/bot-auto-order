@@ -68,6 +68,11 @@ def admin_response_menu() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
+                "📘 Edit Cara Order", callback_data="admin:edit_cara_order"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 "👁️ Preview Semua Template", callback_data="admin:preview_responses"
             )
         ],

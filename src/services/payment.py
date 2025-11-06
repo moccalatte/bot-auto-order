@@ -17,6 +17,7 @@ from src.services.owner_alerts import notify_owners
 from src.services.postgres import get_pool
 from src.services.users import upsert_user
 from src.services.terms import schedule_terms_notifications
+from src.services.payment_messages import delete_payment_messages
 
 
 logger = logging.getLogger(__name__)
@@ -341,6 +342,7 @@ class PaymentService:
                 "amount_cents": amount_cents,
             },
         )
+        await delete_payment_messages(gateway_order_id)
 
     async def mark_payment_failed(self, gateway_order_id: str) -> None:
         """Mark payment as failed/expired."""
