@@ -359,8 +359,9 @@ async def render_order_overview(limit: int = 10) -> str:
         total = format_rupiah(total_cents)
         status = order.get("status", "UNKNOWN")
         username = order.get("username") or order.get("telegram_id") or "-"
-        lines.append(f"#{order['id']} • {status} • {total} • {username}")
-    return "📋 Daftar Order Terbaru:\n" + "\n".join(lines)
+        order_id = order["id"]
+        lines.append(f"<b>{order_id}</b>\n{total} • {status} • {username}")
+    return "📋 <b>Daftar Order Terbaru:</b>\n" + "\n".join(lines)
 
 
 async def render_user_overview(limit: int = 10) -> str:

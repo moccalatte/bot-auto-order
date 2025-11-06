@@ -13,7 +13,7 @@ def main_reply_keyboard(product_numbers: Sequence[int]) -> ReplyKeyboardMarkup:
     """Build main reply keyboard with emoji entries."""
     numbers_row = [f"{index}️⃣" for index in product_numbers]
     keyboard = [
-        ["📋 List Produk", "🛍 Semua Produk"],
+        ["🛍 Semua Produk"],
         ["🏷 Cek Stok", "💰 Deposit"],
         numbers_row,
     ]

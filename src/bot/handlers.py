@@ -141,16 +141,6 @@ async def _send_welcome_message(
     # Use admin keyboard for admins, regular keyboard for customers
     from src.bot.admin.admin_menu import admin_main_menu
 
-    # Inline keyboard with quick actions integrated in welcome message
-    inline_keyboard = InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton("🏷 Cek Stok", callback_data="category:all"),
-                InlineKeyboardButton("🛍 Semua Produk", callback_data="category:all"),
-            ]
-        ]
-    )
-
     target_message = message or update.message
     if target_message is None:
         return
@@ -160,17 +150,11 @@ async def _send_welcome_message(
     else:
         reply_keyboard = keyboards.main_reply_keyboard(range(1, min(len(products), 6)))
 
-    # Send welcome message with inline keyboard (NO separate "Aksi Cepat" message!)
+    # Send welcome message with reply keyboard (no extra messages)
     await target_message.reply_text(
         welcome_text,
-        reply_markup=inline_keyboard,
-        parse_mode=ParseMode.HTML,
-    )
-
-    # Set reply keyboard for menu navigation with minimal text
-    await target_message.reply_text(
-        "🎯 Gunakan menu di bawah untuk navigasi cepat:",
         reply_markup=reply_keyboard,
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -285,11 +269,11 @@ async def handle_product_list(
             buttons.append(nav_row)
 
         # Add product selection buttons (first 5 products on current page)
-        for idx, product in enumerate(products[start_idx:end_idx], start=start_idx):
+        for idx, product in enumerate(products[start_idx:end_idx], start=start_idx + 1):
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        f"🛒 {product.name} - {product.formatted_price}",
+                        f"{idx}",
                         callback_data=f"product:{product.id}",
                     )
                 ]
@@ -1250,7 +1234,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await _send_welcome_message(update, context, user)
         return
 
-    if text == "📋 List Produk" or text == "🛍 Semua Produk":
+    if text == "🛍 Semua Produk":
         products = await list_products()
         await handle_product_list(update.message, context, products, "Semua Produk")
         return
@@ -1674,12 +1658,29 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         elif data == "admin:list_orders":
             overview = await render_order_overview()
-            await update.effective_message.reply_text(overview)
+            await update.effective_message.reply_text(
+                overview, parse_mode=ParseMode.HTML
+            )
             return
         elif data == "admin:update_order":
             set_admin_state(context.user_data, "update_order")
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
+            )
             await update.effective_message.reply_text(
-                "🔄 Format: order_id|status_baru|catatan(optional). Isi catatan hanya bila pembayaran manual/deposit (misal nomor referensi)."
+                "🔄 <b>Update Status Order</b>\n\n"
+                "Kirim format berikut:\n"
+                "<code>order_id | status_baru | catatan (opsional)</code>\n\n"
+                "<b>📝 Contoh:</b>\n"
+                "<code>123 | paid | BNI Transfer #123456</code>\n"
+                "<code>456 | cancelled | Stok habis</code>\n\n"
+                "<b>Status yang tersedia:</b>\n"
+                "• <code>paid</code> - Pembayaran sukses\n"
+                "• <code>cancelled</code> - Pesanan dibatalkan\n"
+                "• <code>completed</code> - Pesanan selesai\n\n"
+                "💡 <b>Catatan:</b> Isi catatan jika ada keterangan pembayaran manual/deposit (nomor referensi, bank, dll)",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.HTML,
             )
             return
         elif data == "admin:list_users":
@@ -1734,15 +1735,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         elif data == "admin:delete_voucher":
             set_admin_state(context.user_data, "delete_voucher")
-            cancel_keyboard = ReplyKeyboardMarkup(
-                [["❌ Batal"]],
-                resize_keyboard=True,
-                one_time_keyboard=True,
+            cancel_keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Batal", callback_data="admin:cancel")]]
             )
             await update.effective_message.reply_text(
                 "🗑️ <b>Nonaktifkan Voucher</b>\n\n"
-                "Kirim <b>ID voucher</b> yang ingin dinonaktifkan.\n\n"
-                "Ketik <b>❌ Batal</b> untuk membatalkan.",
+                "Kirim <b>ID voucher</b> yang ingin dinonaktifkan.",
                 reply_markup=cancel_keyboard,
                 parse_mode=ParseMode.HTML,
             )
@@ -2043,7 +2041,9 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         elif data == "admin:order_menu":
             overview = await render_order_overview()
-            await update.effective_message.reply_text(overview)
+            await update.effective_message.reply_text(
+                overview, parse_mode=ParseMode.HTML
+            )
             await update.effective_message.reply_text(
                 "📦 Kelola Order", reply_markup=admin_order_menu()
             )

@@ -34,7 +34,7 @@ def save_admin_config(user_id: int, config: Dict[str, Any]) -> None:
 def admin_main_menu() -> ReplyKeyboardMarkup:
     """Menu utama admin dengan akses customer + admin features."""
     keyboard = [
-        ["📋 List Produk", "🛍 Semua Produk"],
+        ["🛍 Semua Produk"],
         ["🏷 Cek Stok", "💰 Deposit"],
         ["⚙️ Admin Settings"],
     ]

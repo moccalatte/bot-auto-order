@@ -22,8 +22,37 @@ from src.services.terms import schedule_terms_notifications
 logger = logging.getLogger(__name__)
 
 
+def _parse_iso_datetime(iso_string: str | datetime | None) -> datetime | None:
+    """Parse ISO 8601 datetime string to datetime object.
+
+    Handles formats like:
+    - "2025-11-06T02:59:36.377465708Z"
+    - "2025-09-19T01:18:49.678622564Z"
+    - "2025-09-10T08:07:02.819+07:00"
+
+    If already a datetime, returns as-is. If None, returns None.
+    """
+    if iso_string is None or isinstance(iso_string, datetime):
+        return iso_string
+
+    if not isinstance(iso_string, str):
+        logger.warning("Unexpected type for datetime parsing: %s", type(iso_string))
+        return None
+
+    try:
+        # Try parsing with fromisoformat (Python 3.7+)
+        # Handle 'Z' suffix by replacing with '+00:00'
+        normalized = iso_string.replace('Z', '+00:00')
+        return datetime.fromisoformat(normalized)
+    except (ValueError, TypeError) as exc:
+        logger.error("Failed to parse ISO datetime '%s': %s", iso_string, exc)
+        return None
+
+
 class PaymentError(RuntimeError):
     """Raised when invoice creation fails."""
+</parameter>
+</invoke>
 
 
 class PaymentService:
@@ -100,20 +129,6 @@ class PaymentService:
                         raise PaymentError(
                             f"Stok tidak cukup untuk {item.product.name}."
                         )
-                    update_result = await connection.execute(
-                        """
-                        UPDATE products
-                        SET stock = stock - $2,
-                            updated_at = NOW()
-                        WHERE id = $1 AND stock >= $2;
-                        """,
-                        item.product.id,
-                        item.quantity,
-                    )
-                    if update_result == "UPDATE 0":
-                        raise PaymentError(
-                            f"Stok tidak cukup untuk {item.product.name}."
-                        )
 
                     await connection.execute(
                         """
@@ -171,24 +186,33 @@ class PaymentService:
             payment_payload = pakasir_response.get("payment", {})
 
             # Save expires_at from Pakasir response
-            expires_at = payment_payload.get("expired_at")
-            if expires_at:
-                pool = await get_pool()
-                async with pool.acquire() as connection:
-                    await connection.execute(
-                        """
-                        UPDATE payments
-                        SET expires_at = $2
-                        WHERE gateway_order_id = $1;
-                        """,
+            expires_at_str = payment_payload.get("expired_at")
+            if expires_at_str:
+                # Parse ISO datetime string to datetime object for asyncpg
+                expires_at = _parse_iso_datetime(expires_at_str)
+                if expires_at:
+                    pool = await get_pool()
+                    async with pool.acquire() as connection:
+                        await connection.execute(
+                            """
+                            UPDATE payments
+                            SET expires_at = $2
+                            WHERE gateway_order_id = $1;
+                            """,
+                            gateway_order_id,
+                            expires_at,
+                        )
+                    logger.info(
+                        "[payment] Saved expires_at for %s: %s",
                         gateway_order_id,
                         expires_at,
                     )
-                logger.info(
-                    "[payment] Saved expires_at for %s: %s",
-                    gateway_order_id,
-                    expires_at,
-                )
+                else:
+                    logger.warning(
+                        "[payment] Failed to parse expires_at '%s' for order %s",
+                        expires_at_str,
+                        gateway_order_id,
+                    )
 
         await self._telemetry.increment("carts_created")
 
@@ -276,6 +300,33 @@ class PaymentService:
                     """,
                     order_id,
                 )
+
+                # Deduct stock only when payment is completed successfully
+                order_items = await connection.fetch(
+                    """
+                    SELECT product_id, quantity
+                    FROM order_items
+                    WHERE order_id = $1;
+                    """,
+                    order_id,
+                )
+                for item in order_items:
+                    update_result = await connection.execute(
+                        """
+                        UPDATE products
+                        SET stock = stock - $2,
+                            updated_at = NOW()
+                        WHERE id = $1 AND stock >= $2;
+                        """,
+                        item["product_id"],
+                        item["quantity"],
+                    )
+                    if update_result == "UPDATE 0":
+                        logger.error(
+                            "[stock_error] Insufficient stock for product %s during payment completion for order %s",
+                            item["product_id"],
+                            order_id,
+                        )
         await schedule_terms_notifications(str(order_id))
         await self._telemetry.increment("successful_transactions")
         logger.info(

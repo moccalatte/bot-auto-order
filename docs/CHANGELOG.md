@@ -4,6 +4,88 @@ Dokumen ini mencatat riwayat perubahan, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
+## [0.5.1] – 2025-11-06 (Critical Fixes: Payment Flow, Stock Management, DateTime Parsing, UX Improvements)
+
+### Fixed - CRITICAL Issues (from fixing_plan.md)
+- **CRITICAL: Voucher Delete Missing Inline Keyboard**: Fixed "Nonaktifkan Voucher" showing no Batal button
+  - Changed from `ReplyKeyboardMarkup` to `InlineKeyboardMarkup` with "❌ Batal" button
+  - File: `src/bot/handlers.py` line 1735-1740
+  - Now user can properly cancel voucher deletion action
+  
+- **CRITICAL: Stock Deduction Before Payment**: Fixed stok berkurang saat order dibuat, bukan saat pembayaran sukses
+  - MAJOR DATA INTEGRITY FIX: Moved stock deduction from `create_invoice()` to `mark_payment_completed()`
+  - Stock now only decrements when payment is actually successful
+  - If payment fails/expires, stock is properly restored via `mark_payment_failed()`
+  - File: `src/services/payment.py` line 91-131 (removed), line 262-292 (added)
+  - Impact: Prevents inventory discrepancies and "phantom orders"
+
+- **CRITICAL: DateTime Parsing Error on QRIS Payment**: Fixed TypeError with Pakasir's ISO datetime string
+  - Pakasir returns `expired_at` as ISO string ("2025-11-06T02:59:36.377465708Z"), asyncpg expects datetime object
+  - Added helper function `_parse_iso_datetime()` to parse ISO 8601 strings to datetime objects
+  - Handles edge cases: 'Z' suffix, timezone offsets, None values
+  - File: `src/services/payment.py` line 25-50 (new helper), line 189-215 (usage)
+  - Now payment creation with QRIS works without crashes
+
+- **CRITICAL: Update Order Status Missing Inline Keyboard**: Fixed "Update Status Order" with no Batal button
+  - Changed from text-only instruction to user-friendly format with inline keyboard
+  - Added concrete examples, list of available statuses, and explanation
+  - Inline "❌ Batal" button for proper UX
+  - File: `src/bot/handlers.py` line 1675-1695
+  - Message now includes: format examples, status options, catatan explanation
+
+### Fixed - HIGH Priority Issues
+- **Menu Duplicate - "📋 List Produk"**: Completely removed duplicate menu option
+  - Removed from 3 locations:
+    1. `src/bot/admin/admin_menu.py` - admin main menu
+    2. `src/bot/keyboards.py` - customer main keyboard
+    3. `src/bot/handlers.py` - text_router handler
+  - "🛍 Semua Produk" remains as the single option
+
+- **Welcome Message Redundant Text**: Removed "🎯 Gunakan menu di bawah untuk navigasi cepat:" message completely
+  - Message was separate and redundant with keyboard already showing
+  - Consolidated to single message: welcome text + reply keyboard
+  - File: `src/bot/handlers.py` line 157-169
+  - Cleaner, more professional UX
+
+- **Update Order Status Message Too Technical**: Replaced cryptic format instruction with friendly guide
+  - File: `src/bot/handlers.py` line 1675-1695
+  - Before: "🔄 Format: order_id|status_baru|catatan(optional). Isi catatan..."
+  - After: Clear format, real examples, status explanations, proper buttons
+
+### Fixed - MEDIUM Priority Issues
+- **Product List Button Shows Name Instead of Number**: Changed inline buttons from product name to ordinal number
+  - Button now shows "1", "2", "3", etc. instead of "🛒 NETFLIX 1P1U 1 BULAN = Rp 30.000,00"
+  - Still has callback_data with product ID for proper routing
+  - File: `src/bot/handlers.py` line 285-288
+  - More compact and cleaner product selection UI
+
+- **Order List Format Unreadable**: Reformatted order overview with proper layout and bold highlighting
+  - Before: "#order_id • status • harga • username" (single line, hard to scan)
+  - After: 
+    ```
+    <b>order_id</b>
+    harga • status • username
+    ```
+  - Added HTML bold formatting for order IDs
+  - File: `src/bot/admin/admin_actions.py` line 350-363
+  - File: `src/bot/handlers.py` line 1671-1677, 2037-2042 (added parse_mode=ParseMode.HTML)
+
+### Code Quality Improvements
+- **Minor: Removed Duplicate Inline Keyboard**: Cleaned up redundant inline keyboard in welcome message
+  - File: `src/bot/handlers.py` line 131-150
+  - Reason: Reply keyboard already provides navigation; duplicate inline buttons unnecessary
+  - Reduced message noise
+
+### Code Review Findings - All OK ✅
+- Error handling: Comprehensive try-except for network failures and validation
+- Input validation: All SQL queries parameterized (zero SQL injection risk)
+- State management: Clean admin state lifecycle with proper cleanup
+- Async operations: Proper asyncio locks for race condition prevention
+- Telegram API: Proper error handling for TelegramError, Forbidden, rate limits
+- Payment flow: Transactional integrity maintained throughout
+
+---
+
 ## [0.5.0] – 2025-01-XX (Payment Expiration Monitoring, UX Improvements, Critical Fixes)
 
 ### Added
