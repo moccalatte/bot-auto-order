@@ -1978,8 +1978,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         clear_admin_state(context.user_data)
         if user:
             # Send welcome message with main menu keyboard to replace admin keyboard
+            display_name = user.full_name or user.first_name or user.username or "User"
             await update.message.reply_text(
-                f"👋 Halo <b>{user.get('full_name', 'User')}</b>!\n\n"
+                f"👋 Halo <b>{display_name}</b>!\n\n"
                 f"Selamat datang kembali di menu utama.\n"
                 f"Silakan pilih menu di bawah:",
                 reply_markup=keyboards.main_reply_keyboard(is_admin),

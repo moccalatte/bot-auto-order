@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.4.1] - 2025-01-06
+
+### 🚨 HOTFIX - Critical Runtime Error
+
+**CRITICAL FIX:** Fixed AttributeError crash when admin returns to main menu.
+
+### Fixed
+- **Runtime Error: AttributeError in "⬅️ Kembali ke Menu Utama" Handler**
+  - Fixed crash: `AttributeError: 'User' object has no attribute 'get'`
+  - Root cause: v0.8.4 incorrectly used `user.get('full_name')` on Telegram User object
+  - User object has attributes (`.full_name`, `.username`) not dict methods (`.get()`)
+  - Changed to proper attribute access: `user.full_name or user.first_name or user.username or "User"`
+  - Admin navigation now works without crashes
+
+### Changed
+- **`text_router()` Handler** (`src/bot/handlers.py`, line 1981-1982)
+  - Added display name extraction from User object attributes
+  - Matches pattern used elsewhere in codebase (`_extract_display_name()`)
+
+### Technical Details
+- **Impact:** Critical - bot crashed on every "Kembali ke Menu Utama" click in v0.8.4
+- **Fix Complexity:** Very Low (2 lines changed)
+- **Risk Level:** Very Low (simple attribute access fix)
+- **Testing:** Manual testing completed, all navigation flows working
+
+### Deployment Note
+- **Skip v0.8.4** - Deploy v0.8.4.1 directly from v0.8.3
+- v0.8.4 should NOT be used in production (contains this critical bug)
+
+---
+
 ## [0.8.4] - 2025-01-06
 
 ### 🔧 Critical UX & State Management Fixes

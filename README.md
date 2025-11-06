@@ -2,7 +2,7 @@
 
 Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui Pakasir, serta fitur kustomisasi menu dan respon bot oleh admin langsung dari Telegram.
 
-> **Status:** ✅ Production Ready | **Version:** 0.8.4 | **Last Updated:** 2025-01-06
+> **Status:** ✅ Production Ready | **Version:** 0.8.4.1 | **Last Updated:** 2025-01-06
 
 ## Struktur Proyek
 - `src/`
@@ -21,7 +21,14 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
 
 ## Fitur Utama
 
-### 🆕 v0.8.4 - Critical UX & State Management Fixes 🔧
+### 🆕 v0.8.4.1 - HOTFIX 🚨 + v0.8.4 Features 🔧
+- **HOTFIX: Fixed AttributeError Crash** 🐛: Admin navigation now works reliably
+  - Fixed crash when clicking "⬅️ Kembali ke Menu Utama" 
+  - Root cause: v0.8.4 used `user.get('full_name')` on User object (should use `.full_name` attribute)
+  - Changed to proper attribute access: `user.full_name or user.first_name or user.username`
+  - **Note:** Skip v0.8.4, deploy v0.8.4.1 directly from v0.8.3
+
+### 🔧 v0.8.4 - Critical UX & State Management Fixes
 - **Fixed Soft-Deleted Products Visibility** 👀: Zero-stock products no longer confuse customers
   - Products with stock=0 (soft-deleted) no longer appear in customer product lists
   - Enhanced `list_products()` with `exclude_zero_stock` parameter (default: True)
