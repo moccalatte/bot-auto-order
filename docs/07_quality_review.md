@@ -1,6 +1,8 @@
 bot-auto-order/docs/07_quality_review.md
 # Quality Review – Bot Auto Order Telegram
 
+> **Update 6 Nov 2025:** Penambahan unit-test `tests/test_payments_formatting.py` (fee calc, keyboard guard, template sanity) dan konversi suite ke `unittest` memastikan lingkungan tanpa `pytest` tetap tervalidasi. Pengujian manual menargetkan welcome tunggal, checkout guard, serta deposit QRIS.
+
 ## 1. Code Style & Structure
 
 - Semua modul utama sudah dipisah sesuai tanggung jawab: `src/bot/`, `src/core/`, `src/services/`, `src/admin/`.

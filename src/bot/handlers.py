@@ -35,7 +35,7 @@ from telegram.ext import (
 from src.bot.antispam import AntiSpamDecision, AntiSpamGuard
 from src.bot import keyboards, messages
 from src.core.config import get_settings
-from src.core.currency import format_rupiah
+from src.core.currency import format_rupiah, calculate_gateway_fee
 from src.core.qr import qris_to_image
 from src.core.custom_config import (
     CustomConfigManager,
@@ -267,7 +267,7 @@ def _build_stock_overview_message(
         local_dt = now_utc.astimezone(ZoneInfo(tz_name))
     except Exception:
         local_dt = now_utc
-    timestamp = f"{local_dt.month}/{local_dt.day}/{local_dt.year}, {local_dt.strftime('%I:%M:%S %p')}"
+    timestamp = local_dt.strftime("%d/%m/%Y %H:%M")
     lines = []
     for idx, product in enumerate(products, start=1):
         lines.append(f"<b>— {idx}. {html.escape(product.name)} ➜ {product.stock}x</b>")
@@ -368,18 +368,74 @@ async def _send_welcome_message(
     else:
         reply_keyboard = keyboards.main_reply_keyboard(range(1, min(len(products), 6)))
 
-    # Send welcome message with reply keyboard (no extra messages)
     await target_message.reply_text(
         welcome_text,
-        reply_markup=keyboards.welcome_inline_keyboard(),
-        parse_mode=ParseMode.HTML,
-    )
-
-    await target_message.reply_text(
-        "⌨️ Menu utama tersedia di keyboard bawah. Pilih angka atau menu yang kamu butuhkan ya!",
         reply_markup=reply_keyboard,
         parse_mode=ParseMode.HTML,
     )
+
+
+def _format_local_timestamp(
+    raw_timestamp: str | None,
+    *,
+    tz_name: str,
+    fallback: datetime | None = None,
+) -> str:
+    """Format ISO timestamp string into local time with dd/mm/YYYY HH:MM."""
+    if fallback is None:
+        fallback = datetime.now(timezone.utc)
+    try:
+        source_dt = datetime.fromisoformat(raw_timestamp) if raw_timestamp else fallback
+    except (ValueError, TypeError):
+        source_dt = fallback
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = timezone.utc
+    return source_dt.astimezone(tz).strftime("%d/%m/%Y %H:%M")
+
+
+async def _send_user_info_panel(
+    anchor: Message,
+    context: ContextTypes.DEFAULT_TYPE,
+    user: User,
+) -> None:
+    """Send user info panel with inline navigation."""
+    profile = await get_user_profile(user.id)
+    message_text = _build_user_info_message(profile, user=user)
+    await anchor.reply_text(
+        message_text,
+        reply_markup=keyboards.info_menu_keyboard(),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def _send_cara_order(
+    anchor: Message,
+    context: ContextTypes.DEFAULT_TYPE,
+    user: User,
+) -> None:
+    """Send Cara Order template (photo + caption or text)."""
+    profile = await get_user_profile(user.id)
+    display_name = _extract_display_name(profile, user)
+    text_template, photo_id = await _get_cara_order_template(context)
+    settings = get_settings()
+    rendered = _apply_template(
+        text_template,
+        nama=display_name,
+        store_name=settings.store_name,
+    )
+    if photo_id:
+        await anchor.reply_photo(
+            photo=photo_id,
+            caption=rendered,
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await anchor.reply_text(
+            rendered,
+            parse_mode=ParseMode.HTML,
+        )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -648,6 +704,70 @@ async def _notify_admin_new_order(
         except TelegramError as exc:  # pragma: no cover - network failure
             logger.warning(
                 "[notif] Gagal mengirim notifikasi order ke admin %s: %s",
+                admin_id,
+                exc,
+            )
+
+
+async def _notify_admin_new_deposit(
+    *,
+    context: ContextTypes.DEFAULT_TYPE,
+    user: User,
+    amount_cents: int,
+    fee_cents: int,
+    payable_cents: int,
+    gateway_order_id: str,
+    created_at: str,
+) -> None:
+    """Send alert to admins about new deposit invoice."""
+    recipients = _get_seller_recipient_ids(context)
+    if not recipients:
+        return
+    settings = get_settings()
+    try:
+        created_dt = datetime.fromisoformat(created_at)
+    except (ValueError, TypeError):
+        created_dt = datetime.now(timezone.utc)
+    try:
+        tz = ZoneInfo(settings.bot_timezone)
+    except Exception:
+        tz = timezone.utc
+    created_local = created_dt.astimezone(tz)
+    timestamp_str = created_local.strftime("%d-%m-%Y %H:%M")
+
+    customer_name = _limit_words(user.full_name or user.username or "Customer")
+    amount_text = format_rupiah(amount_cents)
+    fee_text = format_rupiah(fee_cents)
+    payable_text = format_rupiah(payable_cents)
+
+    message_text = (
+        "💰 <b>Deposit Baru</b>\n\n"
+        f"<b>User:</b> {html.escape(customer_name)} (ID {user.id})\n"
+        f"<b>Nominal Deposit:</b> {amount_text}\n"
+        f"<b>Fee Pakasir:</b> {fee_text}\n"
+        f"<b>Total Dibayar:</b> {payable_text}\n"
+        f"<b>Gateway ID:</b> <code>{gateway_order_id}</code>\n"
+        f"<b>Tanggal:</b> {timestamp_str}\n\n"
+        "⌛ Menunggu pembayaran QRIS."
+    )
+
+    for admin_id in recipients:
+        try:
+            sent_message = await context.bot.send_message(
+                chat_id=admin_id,
+                text=message_text,
+                parse_mode=ParseMode.HTML,
+            )
+            await record_payment_message(
+                gateway_order_id=gateway_order_id,
+                chat_id=sent_message.chat_id,
+                message_id=sent_message.message_id,
+                role="admin_deposit_alert",
+                message_kind="text",
+            )
+        except TelegramError as exc:
+            logger.warning(
+                "[deposit_notif] Gagal mengirim notifikasi deposit ke admin %s: %s",
                 admin_id,
                 exc,
             )
@@ -1009,6 +1129,115 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 parse_mode=ParseMode.HTML,
             )
             return
+
+    deposit_state = context.user_data.get("deposit_qris")
+    if deposit_state:
+        if user is None:
+            context.user_data.pop("deposit_qris", None)
+            await update.message.reply_text(
+                "⚠️ Tidak dapat memproses deposit tanpa informasi user.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        if text.lower() == "batal":
+            context.user_data.pop("deposit_qris", None)
+            await update.message.reply_text(
+                "✅ Deposit dibatalkan.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        try:
+            amount_cents = parse_price_to_cents(text.strip())
+        except AdminActionError:
+            await update.message.reply_text(
+                "❌ Nominal deposit tidak valid. Masukkan angka saja (contoh: 30000).",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        min_deposit_cents = 10_000 * 100
+        if amount_cents < min_deposit_cents:
+            await update.message.reply_text(
+                "⚠️ Minimal deposit adalah Rp 10.000,00.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        payment_service = get_payment_service(context)
+        loading_msg = await update.message.reply_text(
+            messages.payment_loading(),
+            parse_mode=ParseMode.HTML,
+        )
+        try:
+            gateway_order_id, payload = await payment_service.create_deposit_invoice(
+                telegram_user={
+                    "id": user.id,
+                    "username": user.username,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                },
+                amount_cents=amount_cents,
+            )
+        except PaymentError as exc:
+            await loading_msg.edit_text(f"⚠️ {exc}", parse_mode=ParseMode.HTML)
+            context.user_data.pop("deposit_qris", None)
+            return
+
+        deposit_payment = payload["payment"]
+        fee_cents = int(payload.get("fee_cents") or 0)
+        payable_cents = int(payload.get("payable_cents") or amount_cents + fee_cents)
+        settings = get_settings()
+        created_display = _format_local_timestamp(
+            payload.get("created_at"),
+            tz_name=settings.bot_timezone,
+        )
+        deposit_text = messages.deposit_invoice_detail(
+            invoice_id=gateway_order_id,
+            amount_rp=format_rupiah(amount_cents),
+            fee_rp=format_rupiah(fee_cents),
+            payable_rp=format_rupiah(payable_cents),
+            expires_in="5 Menit",
+            created_at=created_display,
+        )
+
+        qr_data = str(deposit_payment.get("payment_number", ""))
+        if qr_data:
+            deposit_message = await update.message.reply_photo(
+                photo=qris_to_image(qr_data),
+                caption=deposit_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboards.deposit_invoice_keyboard(payload["payment_url"]),
+            )
+        else:
+            deposit_message = await update.message.reply_text(
+                deposit_text + "\n\n(⚠️ QR tidak tersedia, gunakan tautan checkout.)",
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboards.deposit_invoice_keyboard(payload["payment_url"]),
+            )
+
+        await record_payment_message(
+            gateway_order_id=gateway_order_id,
+            chat_id=deposit_message.chat_id,
+            message_id=deposit_message.message_id,
+            role="user_deposit",
+            message_kind="photo" if qr_data else "text",
+        )
+
+        try:
+            await loading_msg.delete()
+        except Exception:
+            pass
+
+        await _notify_admin_new_deposit(
+            context=context,
+            user=user,
+            amount_cents=amount_cents,
+            fee_cents=fee_cents,
+            payable_cents=payable_cents,
+            gateway_order_id=gateway_order_id,
+            created_at=payload["created_at"],
+        )
+        context.user_data.pop("deposit_qris", None)
+        return
 
     if is_admin:
         state = get_admin_state(context.user_data)
@@ -1560,6 +1789,14 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             parse_mode=ParseMode.HTML,
         )
         return
+    if text == "ℹ️ Informasi":
+        if user:
+            await _send_user_info_panel(update.message, context, user)
+        return
+    if text == "📘 Cara Order":
+        if user:
+            await _send_cara_order(update.message, context, user)
+        return
     if text == "📣 Broadcast Pesan":
         if not is_admin:
             await update.message.reply_text("❌ Kamu tidak punya akses admin.")
@@ -1860,38 +2097,15 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     if data == "welcome:info":
-        profile = await get_user_profile(user.id)
-        message_text = _build_user_info_message(profile, user=user)
         await query.answer()
-        await query.message.reply_text(
-            message_text,
-            reply_markup=keyboards.info_menu_keyboard(),
-            parse_mode=ParseMode.HTML,
-        )
+        if query.message:
+            await _send_user_info_panel(query.message, context, user)
         return
 
     if data == "welcome:howto":
-        profile = await get_user_profile(user.id)
-        display_name = _extract_display_name(profile, user)
-        text_template, photo_id = await _get_cara_order_template(context)
-        settings = get_settings()
-        rendered = _apply_template(
-            text_template,
-            nama=display_name,
-            store_name=settings.store_name,
-        )
         await query.answer()
-        if photo_id:
-            await query.message.reply_photo(
-                photo=photo_id,
-                caption=rendered,
-                parse_mode=ParseMode.HTML,
-            )
-        else:
-            await query.message.reply_text(
-                rendered,
-                parse_mode=ParseMode.HTML,
-            )
+        if query.message:
+            await _send_cara_order(query.message, context, user)
         return
 
     if data.startswith("profile:"):
@@ -2530,12 +2744,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         action = data.split(":", maxsplit=1)[1]
         if action == "qris":
             await query.answer()
+            context.user_data["deposit_qris"] = {"stage": "await_amount"}
             await query.message.reply_text(
                 "💳 <b>Deposit via QRIS</b>\n\n"
-                "🔄 Fitur deposit QRIS sedang dalam pengembangan.\n\n"
-                "Untuk sementara, silakan gunakan metode <b>Transfer Manual</b> "
-                "atau hubungi admin untuk top-up saldo.\n\n"
-                "📱 Akan segera hadir dalam update mendatang!",
+                "Masukkan nominal deposit yang ingin kamu isi (contoh: <code>30000</code>).\n"
+                "Biaya layanan otomatis ditambahkan sebesar <b>0,7%</b> + <b>Rp 310</b>.\n\n"
+                "Ketik <b>Batal</b> jika ingin membatalkan proses deposit.",
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -2650,11 +2864,20 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         if action == "checkout":
             total_items = cart.total_items()
+            if total_items <= 0:
+                await query.answer("Keranjangmu masih kosong.", show_alert=True)
+                await query.message.reply_text(
+                    "🛒 <b>Keranjangmu masih kosong.</b>\n"
+                    "Tambahkan minimal satu produk terlebih dahulu sebelum checkout ya.",
+                    reply_markup=keyboards.cart_inline_keyboard(has_items=False),
+                    parse_mode=ParseMode.HTML,
+                )
+                return
             total_rp = format_rupiah(cart.total_cents())
             lines = cart.to_lines()
             await query.message.reply_text(
                 messages.cart_summary(lines, total_items, total_rp),
-                reply_markup=keyboards.cart_inline_keyboard(),
+                reply_markup=keyboards.cart_inline_keyboard(has_items=True),
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -2671,11 +2894,26 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         if action == "pay":
-            total_rp = format_rupiah(cart.total_cents())
+            subtotal_cents = cart.total_cents()
+            if subtotal_cents <= 0:
+                await query.answer("Keranjangmu masih kosong.", show_alert=True)
+                return
+            fee_cents = calculate_gateway_fee(subtotal_cents)
+            payable_cents = subtotal_cents + fee_cents
+            subtotal_rp = format_rupiah(subtotal_cents)
+            fee_rp = format_rupiah(fee_cents)
+            total_rp = format_rupiah(payable_cents)
             user_name = query.from_user.full_name
             balance_rp = format_rupiah(0)
             await query.message.reply_text(
-                messages.payment_prompt(total_rp, user_name, balance_rp, "524107"),
+                messages.payment_prompt(
+                    subtotal_rp=subtotal_rp,
+                    payable_rp=total_rp,
+                    fee_rp=fee_rp,
+                    user_name=user_name,
+                    balance_rp=balance_rp,
+                    bank_id="524107",
+                ),
                 reply_markup=keyboards.payment_method_keyboard(),
                 parse_mode=ParseMode.HTML,
             )
@@ -2709,12 +2947,24 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 return
 
             payment_data = payload["payment"]
+            subtotal_cents = int(payload.get("total_cents") or cart.total_cents())
+            fee_cents = int(payload.get("fee_cents") or 0)
+            payable_cents = int(
+                payload.get("payable_cents") or subtotal_cents + fee_cents
+            )
+            settings = get_settings()
+            created_display = _format_local_timestamp(
+                payload.get("created_at"),
+                tz_name=settings.bot_timezone,
+            )
             invoice_text = messages.payment_invoice_detail(
                 invoice_id=gateway_order_id,
                 items=cart.to_lines(),
-                total_rp=format_rupiah(cart.total_cents()),
+                subtotal_rp=format_rupiah(subtotal_cents),
+                fee_rp=format_rupiah(fee_cents),
+                payable_rp=format_rupiah(payable_cents),
                 expires_in="5 Menit",
-                created_at=payload["created_at"],
+                created_at=created_display,
             )
 
             # Send invoice to user first

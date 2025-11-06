@@ -3,6 +3,8 @@
 ## Overview
 Bot Auto Order Telegram adalah sistem otomatisasi pemesanan produk digital yang berjalan di platform Telegram, terintegrasi dengan payment gateway Pakasir (QRIS). Bot ini dirancang untuk memudahkan pembeli melakukan transaksi secara mandiri, sekaligus memberikan kontrol penuh kepada owner dan admin/seller untuk mengelola produk, order, dan konfigurasi bot langsung dari Telegram tanpa akses ke server atau codebase.
 
+> **Update 6 Nov 2025:** Onboarding kini hanya mengirim satu pesan welcome + keyboard, informasi stok menggunakan timezone Asia/Jakarta, dan alur pembayaran/ deposit otomatis menambahkan biaya Pakasir (0,7% + Rp310) lengkap dengan pembersihan invoice kadaluarsa.
+
 ## Tujuan Utama
 - Mempermudah proses pembelian produk digital via Telegram dengan alur yang cepat, jelas, dan ramah emoji.
 - Menyediakan pembayaran otomatis dan aman melalui QRIS (Pakasir).

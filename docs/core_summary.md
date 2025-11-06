@@ -5,6 +5,8 @@ Dokumen ini adalah ringkasan inti proyek untuk referensi cepat tim, AI builder, 
 
 > **Current Version:** 0.2.3 | **Status:** ✅ Production Ready | **Last Updated:** 2025-01-16
 
+> **Update 6 Nov 2025:** Welcome + menu utama kini dikirim dalam satu pesan, invoice & deposit QRIS otomatis menambahkan fee 0,7% + Rp310, keranjang menolak checkout kosong, dan scheduler menangani cleanup pesan order & deposit kadaluarsa.
+
 ---
 
 ## 1. Overview Proyek
@@ -20,10 +22,11 @@ Dokumen ini adalah ringkasan inti proyek untuk referensi cepat tim, AI builder, 
 ## 2. Fitur Utama
 
 ### Customer Features
-- **Onboarding `/start`**: Sticker engaging + statistik real-time + emoji konsisten
+- **Onboarding `/start`**: Sticker engaging + statistik real-time + emoji konsisten (satu pesan + keyboard lengkap)
 - **Navigasi Produk**: Inline keyboard kategori, detail produk dengan HTML formatting
-- **Keranjang Belanja**: Summary dengan bold totals, voucher support
-- **Pembayaran Otomatis**: Integrasi Pakasir (QRIS) dengan real-time status
+- **Keranjang Belanja**: Summary dengan bold totals, voucher support, guard mencegah checkout saat kosong
+- **Pembayaran Otomatis**: Integrasi Pakasir (QRIS) dengan real-time status + fee otomatis (0,7% + Rp310) ditampilkan sebagai subtotal/fee/total
+- **Deposit QRIS**: Menu deposit aktif (minimal Rp10.000) menampilkan nominal + fee + total dibayar dan mengirim invoice QRIS
 - **SNK Submission**: Customer dapat submit bukti SNK dengan tombol dedicated
 
 ### Admin Features (Role-Based Access)
@@ -36,7 +39,7 @@ Dokumen ini adalah ringkasan inti proyek untuk referensi cepat tim, AI builder, 
   - 📢 **Broadcast**: Send messages (text/photo) dengan real-time stats dan **inline cancel button**
   - 🧮 **Calculator**: **Direct wizard** (no commands), Hitung Refund & Atur Formula dengan **inline cancel buttons**
   - 📊 **Statistik**: Comprehensive dashboard (fixed: import list_users)
-  - 💰 **Deposit**: Manage user deposits dengan inline buttons
+  - 💰 **Deposit**: Manage user deposits dengan inline buttons, termasuk invoice QRIS otomatis & pencatatan status
 - **Inline Cancel Buttons Everywhere**: SEMUA admin operations sekarang punya inline cancel button (bukan text)
 - **Real-Time Feedback**: Live statistics dengan progress indicators di multi-step operations
 - **Visual Selection**: Pilih produk dari list untuk edit/hapus/SNK (no need to know product_id)

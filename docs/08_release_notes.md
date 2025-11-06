@@ -4,6 +4,28 @@ Dokumen ini mencatat perubahan penting, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
+## Version 0.5.4 – 2025-11-06
+### Added
+- **Deposit QRIS Workflow**: Pelanggan dapat mengisi saldo via QRIS; bot menghitung fee 0,7% + Rp310, menyimpan log deposit baru, dan menginformasikan admin.
+- **Deposit Scheduler Cleanup**: Job `check_expired_payments_job` sekarang juga menandai deposit kadaluarsa, menghapus pesan user/admin, serta mengirim notifikasi pembatalan.
+- **Fee Helper & Tests**: Helper `calculate_gateway_fee` + unit test baru menjamin kalkulasi konsisten untuk invoice maupun deposit.
+
+### Changed
+- **Welcome & Stok UX**: `/start` hanya mengirim satu pesan dengan keyboard lengkap; tampilan stok memakai format `dd/mm/YYYY HH:MM` sesuai timezone bot.
+- **Invoice Copy**: Pesan invoice & prompt pembayaran menampilkan subtotal, fee, dan total dibayar secara terpisah.
+
+### Fixed
+- **Total Dibayar QRIS Salah (Issue #3)**: Semua invoice otomatis menambahkan fee Pakasir (0,7% + Rp310) dan menampilkan nilai akhir yang harus dibayar.
+- **Pesan Expired Bertahan (Issue #4)**: Mekanisme pembersihan pesan diperkuat (delete/edit fallback) agar invoice dan notifikasi admin benar-benar hilang saat kadaluarsa.
+- **Checkout Keranjang Kosong (Issue #6)**: Bot menolak checkout/pay ketika keranjang kosong dan hanya menampilkan opsi kembali ke katalog.
+- **Deposit QRIS Pending (Issue #5)**: Menu `💰 Deposit` kini aktif penuh, menghitung fee, mengirim invoice QRIS, dan menolak nominal di bawah Rp10.000.
+
+### Testing
+- `python -m unittest discover` *(3 kasus diskip karena dependency eksternal `telegram`/`asyncpg` tidak tersedia di sandbox)*  
+- Pengujian manual menu welcome, cek stok, checkout, deposit QRIS, dan scheduler expire.
+
+---
+
 ## Version 0.5.3 – 2025-11-07
 ### Added
 - **Inline Info Panel**: Welcome message menampilkan tombol `ℹ️ INFORMASI` dan `📘 Cara Order` untuk akses cepat ke profil, customer service, serta panduan kustom (teks & foto).

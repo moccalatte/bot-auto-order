@@ -3,6 +3,8 @@ bot-auto-order/docs/09_maintenance_plan.md
 
 Dokumen ini memuat panduan lengkap perawatan, backup, monitoring, dan update untuk menjaga stabilitas dan keamanan bot auto order Telegram.
 
+> **Update 6 Nov 2025:** Pastikan job `check_expired_payments_job` tetap aktif karena kini mengurus cleaning invoice & deposit. Monitoring log wajib memeriksa entri `[expired_payments]` dan `[expired_deposits]` untuk memastikan tidak ada pesan tersisa di chat.
+
 ---
 
 ## 1. Backup

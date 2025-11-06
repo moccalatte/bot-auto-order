@@ -4,6 +4,27 @@ Dokumen ini mencatat riwayat perubahan, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
+## [0.5.4] – 2025-11-06 (QRIS Fee Normalization & Deposit Automation)
+
+### Added
+- Deposit QRIS workflow lengkap (minimum Rp10k) dengan perhitungan fee otomatis dan pencatatan ke tabel `deposits`.
+- Job `check_expired_payments_job` diperluas untuk menghapus pesan invoice/admin deposit yang kadaluarsa dan mengirim notifikasi pembatalan.
+- Unit test `tests/test_payments_formatting.py` (berbasis `unittest`) untuk fungsi fee, keyboard cart, dan template invoice.
+
+### Changed
+- `/start` hanya mengirim satu pesan welcome + keyboard; pesan stok memakai format `dd/mm/YYYY HH:MM` sesuai timezone bot.
+- Prompt pembayaran menampilkan subtotal, fee Pakasir, dan total dibayar secara terpisah; guard mencegah checkout ketika keranjang kosong.
+- `PaymentService` menormalisasi amount ke Rupiah + fee ketika meminta invoice ke Pakasir dan menyimpan nilai bayar akhir.
+
+### Fixed
+- Total dibayar pada invoice QRIS dan deposit kini menambahkan fee 0,7% + Rp310 (Issue #3).
+- Pesan invoice/admin tidak lagi tertinggal setelah expiry berkat fallback delete/edit (Issue #4).
+- Menu `💰 Deposit` aktif penuh; nominal di bawah Rp10k ditolak dan status deposit diperbarui lewat webhook (Issue #5).
+- Checkout tanpa item tidak lagi menampilkan prompt pembayaran (Issue #6).
+
+### Testing
+- `python -m unittest discover` *(3 test diskip karena dependency `telegram` & `asyncpg` tidak tersedia di sandbox)*
+
 ## [0.5.3] – 2025-11-07 (Info Panel, QRIS Fix, Expiry Cleanup)
 
 ### Added

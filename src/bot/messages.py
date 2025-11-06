@@ -24,7 +24,8 @@ def welcome_message(
         f"🎪 Selamat datang di <b>{store_name}</b> 🎉\n"
         f"🙍🏻‍♂️ <b>Total Pengguna Bot: {users_text} orang</b>\n"
         f"🎯 <b>Transaksi Tuntas: {transactions_text}x</b>\n\n"
-        "🛒 Silakan pilih kategori atau gunakan tombol di bawah untuk jelajahi katalog kami!"
+        "🛒 Silakan pilih kategori atau gunakan tombol di bawah untuk jelajahi katalog kami!\n\n"
+        "⌨️ Menu utama tersedia di keyboard bawah. Pilih angka atau menu yang kamu butuhkan ya!"
     )
 
 
@@ -101,14 +102,22 @@ def cart_summary(cart_lines: list[str], total_items: int, total_rp: str) -> str:
 
 
 def payment_prompt(
-    total_rp: str, user_name: str, balance_rp: str, bank_id: str | None
+    *,
+    subtotal_rp: str,
+    payable_rp: str,
+    fee_rp: str,
+    user_name: str,
+    balance_rp: str,
+    bank_id: str | None,
 ) -> str:
     """Prompt user to choose payment method."""
     lines = [
         "🧊 <b>Silakan Pilih Metode Pembayaran</b>",
         "",
         "💳 <b>Informasi Tagihan</b>",
-        f"— Total Dibayar: <b>{total_rp}</b>",
+        f"— Total Harga: <b>{subtotal_rp}</b>",
+        f"— Biaya Layanan Pakasir: <b>{fee_rp}</b>",
+        f"— Total Dibayar: <b>{payable_rp}</b>",
         f"— Date Created: {datetime.now().strftime('%d/%m/%y')}",
         "",
         "🙋 <b>Informasi Kamu</b>",
@@ -129,7 +138,9 @@ def payment_invoice_detail(
     *,
     invoice_id: str,
     items: list[str],
-    total_rp: str,
+    subtotal_rp: str,
+    fee_rp: str,
+    payable_rp: str,
     expires_in: str,
     created_at: str,
 ) -> str:
@@ -138,14 +149,37 @@ def payment_invoice_detail(
     return (
         f"🏷️ <b>Invoice Berhasil Dibuat</b>\n<code>{invoice_id}</code>\n\n"
         "🛍️ <b>Informasi Item:</b>\n"
-        f"— Total Harga: <b>{total_rp}</b>\n"
+        f"— Total Harga: <b>{subtotal_rp}</b>\n"
+        f"— Biaya Layanan Pakasir: <b>{fee_rp}</b>\n"
         f"— Jumlah Item: <b>{len(items)}x</b>\n"
         f"— List Yang Dibeli:\n{items_block}\n\n"
         "💰 <b>Informasi Pembayaran:</b>\n"
         f"— ID Transaksi: <code>{invoice_id}</code>\n"
         f"— Tanggal Dibuat: {created_at}\n"
-        f"— Total Dibayar: <b>{total_rp}</b>\n"
+        f"— Total Dibayar: <b>{payable_rp}</b>\n"
         f"— Expired In: <b>{expires_in}</b> ⏰\n"
+    )
+
+
+def deposit_invoice_detail(
+    *,
+    invoice_id: str,
+    amount_rp: str,
+    fee_rp: str,
+    payable_rp: str,
+    expires_in: str,
+    created_at: str,
+) -> str:
+    """Formatted deposit invoice summary."""
+    return (
+        f"💼 <b>Deposit QRIS Dibuat</b>\n<code>{invoice_id}</code>\n\n"
+        "💰 <b>Nominal Deposit:</b> "
+        f"<b>{amount_rp}</b>\n"
+        f"💸 <b>Biaya Layanan Pakasir:</b> <b>{fee_rp}</b>\n"
+        f"💳 <b>Total Dibayar:</b> <b>{payable_rp}</b>\n"
+        f"📅 <b>Tanggal Dibuat:</b> {created_at}\n"
+        f"⏰ <b>Expired In:</b> {expires_in}\n\n"
+        "Setelah pembayaran berhasil, saldo kamu akan bertambah otomatis."
     )
 
 

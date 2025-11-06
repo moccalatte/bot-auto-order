@@ -191,17 +191,21 @@
 
 #### Test 3: Cart & Checkout
 **Test Steps:**
-1. Add multiple products ke cart
-2. Click `🧺 Lanjut ke Keranjang`
-3. Verify cart summary dengan bold totals dan item counts
-4. Test `🎟️ Gunakan Kupon` (jika ada voucher active)
-5. Click `💳 Lanjut ke Pembayaran`
-6. Verify payment method selection (💠 QRIS, 💼 Saldo)
-7. Test cancel operation dengan `❌ Batal`
+1. Pastikan keranjang kosong → klik `🧺 Lanjut ke Keranjang` → bot harus menolak & menawarkan kembali ke katalog
+2. Add multiple products ke cart
+3. Click `🧺 Lanjut ke Keranjang`
+4. Verify cart summary dengan bold totals dan item counts
+5. Test `🎟️ Gunakan Kupon` (jika ada voucher active)
+6. Click `💳 Lanjut ke Pembayaran`
+7. Pastikan prompt pembayaran menampilkan subtotal, fee Pakasir, dan total dibayar (bold)
+8. Verify payment method selection (💠 QRIS, 💼 Saldo)
+9. Test cancel operation dengan `❌ Batal`
 
 **Expected Result:**
+- ✅ Guard mencegah checkout kosong
 - ✅ Cart summary accurate dengan HTML formatting
 - ✅ Voucher validation works
+- ✅ Payment prompt menunjukkan subtotal + fee + total dibayar
 - ✅ Payment method selection functional
 - ✅ Cancel operation returns ke main menu
 
@@ -418,13 +422,18 @@
 #### Test 15: Deposit
 **Test Steps:**
 1. Enter `💰 Deposit` submenu
-2. Test manual deposit untuk user
-3. Verify inline buttons functional
-4. Check deposit reflected di user balance
+2. Pilih `💳 Deposit QRIS`, masukkan nominal `30000`
+   - Pastikan bot menampilkan subtotal Rp30.000, fee Rp520, dan total Rp30.520
+   - Konfirmasi QR + tombol checkout muncul dan message tercatat di log
+3. Tunggu >5 menit (atau simulasi kadaluarsa) → pastikan pesan invoice & notifikasi admin dihapus, bot mengirim info pembatalan
+4. Ulangi deposit `💳 Deposit QRIS` dan selesaikan pembayaran sandbox (atau mock) → saldo user bertambah sebesar nominal sebelum fee
+5. Test manual deposit (Transfer) untuk memastikan instruksi admin tetap benar
+6. Verify inline buttons functional & log deposit tersimpan
 
 **Expected Result:**
-- ✅ Deposit operations work
-- ✅ Balance updates correctly
+- ✅ Deposit QRIS menghitung fee dengan benar, pesan dibersihkan saat expired
+- ✅ Deposit sukses menambah saldo sesuai nominal tanpa fee
+- ✅ Manual deposit flow tetap tersedia
 
 ---
 

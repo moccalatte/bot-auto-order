@@ -3,6 +3,8 @@ bot-auto-order/docs/05_security_policy.md
 
 Dokumen ini merangkum kebijakan keamanan, autentikasi, validasi, logging, dan mitigasi risiko untuk bot auto order Telegram yang terintegrasi dengan Pakasir.
 
+> **Update 6 Nov 2025:** Validasi tambahan diberlakukan: nominal deposit minimal Rp10.000, keranjang tidak bisa checkout ketika kosong, dan scheduler wajib menghapus invoice kadaluarsa agar tidak ada data sensitif menggantung di chat admin/user.
+
 ---
 
 ## 1. Authentication & Authorization

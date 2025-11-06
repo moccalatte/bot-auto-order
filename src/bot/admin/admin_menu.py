@@ -36,6 +36,7 @@ def admin_main_menu() -> ReplyKeyboardMarkup:
     keyboard = [
         ["🛍 Semua Produk"],
         ["🏷 Cek Stok", "💰 Deposit"],
+        ["ℹ️ Informasi", "📘 Cara Order"],
         ["⚙️ Admin Settings"],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)

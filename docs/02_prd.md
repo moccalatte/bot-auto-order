@@ -2,6 +2,8 @@
 
 > **Version:** 0.2.2 | **Last Updated:** 2025-01-16 | **Status:** ✅ Production Ready
 
+> **Update 6 Nov 2025:** PRD diperkaya dengan kebutuhan fee otomatis (0,7% + Rp310) pada invoice QRIS/deposit, penegasan bahwa welcome message & stok tampil dalam satu pesan dengan timezone Asia/Jakarta, serta larangan checkout saat keranjang kosong.
+
 ## Referensi
 - `docs/00_context.md` – gambaran alur interaksi pengguna dan admin.
 - `docs/pakasir.md` – panduan integrasi payment gateway Pakasir.

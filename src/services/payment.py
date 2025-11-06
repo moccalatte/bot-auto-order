@@ -10,14 +10,20 @@ from uuid import uuid4
 
 from src.core.audit import audit_log
 from src.core.telemetry import TelemetryTracker
+from src.core.currency import calculate_gateway_fee
 from src.services.cart import Cart
 from src.services.catalog import Product
 from src.services.pakasir import PakasirClient
 from src.services.owner_alerts import notify_owners
 from src.services.postgres import get_pool
-from src.services.users import upsert_user
+from src.services.users import upsert_user, update_balance
 from src.services.terms import schedule_terms_notifications
 from src.services.payment_messages import delete_payment_messages
+from src.services.deposit import (
+    create_deposit,
+    get_deposit_by_gateway,
+    update_deposit_status,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -105,6 +111,8 @@ class PaymentService:
         )
 
         total_cents = cart.total_cents()
+        fee_cents = calculate_gateway_fee(total_cents) if method != "deposit" else 0
+        payable_cents = total_cents + fee_cents
         gateway_order_id = f"tg{telegram_user['id']}-{uuid4().hex[:8]}"
 
         pool = await get_pool()
@@ -149,17 +157,20 @@ class PaymentService:
                         method,
                         status,
                         amount_cents,
+                        fee_cents,
                         total_payment_cents,
                         created_at,
                         updated_at,
                         expires_at
                     )
-                    VALUES ($1, $2, $3, 'created', $4, $4, NOW(), NOW(), NULL);
+                    VALUES ($1, $2, $3, 'created', $4, $5, $6, NOW(), NOW(), NULL);
                     """,
                     order_id,
                     gateway_order_id,
                     method,
                     total_cents,
+                    fee_cents,
+                    payable_cents,
                 )
 
         if method == "deposit":
@@ -174,7 +185,7 @@ class PaymentService:
                 pakasir_response = await self._pakasir_client.create_transaction(
                     method,
                     gateway_order_id,
-                    total_cents,
+                    payable_cents,
                 )
             except Exception as exc:  # pragma: no cover - network failure
                 await self._register_failure(str(exc))
@@ -218,11 +229,73 @@ class PaymentService:
         return gateway_order_id, {
             "order_id": str(order_id),
             "total_cents": total_cents,
+            "fee_cents": fee_cents,
+            "payable_cents": payable_cents,
             "payment": payment_payload,
             "payment_url": self._pakasir_client.build_payment_url(
-                gateway_order_id, total_cents
+                gateway_order_id, payable_cents
             ),
             "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    async def create_deposit_invoice(
+        self,
+        *,
+        telegram_user: Dict[str, str | int | None],
+        amount_cents: int,
+    ) -> Tuple[str, Dict[str, object]]:
+        """Create QRIS invoice for balance top-up."""
+        if amount_cents <= 0:
+            raise PaymentError("Nominal deposit harus lebih dari 0.")
+
+        user_id = await upsert_user(
+            telegram_id=int(telegram_user["id"]),
+            username=telegram_user.get("username"),
+            first_name=telegram_user.get("first_name"),
+            last_name=telegram_user.get("last_name"),
+        )
+
+        fee_cents = calculate_gateway_fee(amount_cents)
+        payable_cents = amount_cents + fee_cents
+        gateway_order_id = f"dp{telegram_user['id']}-{uuid4().hex[:8]}"
+
+        try:
+            pakasir_response = await self._pakasir_client.create_transaction(
+                "qris",
+                gateway_order_id,
+                payable_cents,
+            )
+        except Exception as exc:  # pragma: no cover - network failure
+            await self._register_failure(str(exc))
+            raise PaymentError(
+                "Gateway pembayaran sedang bermasalah, coba lagi sebentar lagi."
+            ) from exc
+
+        await self._reset_failures()
+        payment_payload = pakasir_response.get("payment", {})
+        expires_at = _parse_iso_datetime(payment_payload.get("expired_at"))
+
+        deposit_row = await create_deposit(
+            user_id=user_id,
+            amount_cents=amount_cents,
+            fee_cents=fee_cents,
+            payable_cents=payable_cents,
+            method="qris",
+            gateway_order_id=gateway_order_id,
+            expires_at=expires_at,
+        )
+
+        return gateway_order_id, {
+            "deposit_id": deposit_row.get("id"),
+            "amount_cents": amount_cents,
+            "fee_cents": fee_cents,
+            "payable_cents": payable_cents,
+            "payment": payment_payload,
+            "payment_url": self._pakasir_client.build_payment_url(
+                gateway_order_id, payable_cents
+            ),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "expires_at": payment_payload.get("expired_at"),
         }
 
     async def mark_payment_completed(
@@ -234,7 +307,12 @@ class PaymentService:
             async with connection.transaction():
                 payment_row = await connection.fetchrow(
                     """
-                    SELECT order_id, status, amount_cents
+                    SELECT
+                        order_id,
+                        status,
+                        amount_cents,
+                        fee_cents,
+                        total_payment_cents
                     FROM payments
                     WHERE gateway_order_id = $1
                     FOR UPDATE;
@@ -252,12 +330,12 @@ class PaymentService:
                     )
                     return
 
-                stored_amount = int(payment_row.get("amount_cents") or 0)
-                if stored_amount != amount_cents:
+                stored_total = int(payment_row.get("total_payment_cents") or 0)
+                if stored_total != amount_cents:
                     logger.error(
                         "[payment_mismatch] Amount gateway %s tidak cocok. stored=%s gateway=%s",
                         gateway_order_id,
-                        stored_amount,
+                        stored_total,
                         amount_cents,
                     )
                     raise PaymentError("Nominal pembayaran tidak cocok.")
@@ -269,9 +347,10 @@ class PaymentService:
                     """,
                     order_id,
                 )
+                base_amount = int(payment_row.get("amount_cents") or 0)
                 if (
                     order_row
-                    and int(order_row["total_price_cents"] or 0) != amount_cents
+                    and int(order_row["total_price_cents"] or 0) != base_amount
                 ):
                     logger.error(
                         "[payment_mismatch] Order %s total tidak sesuai dengan pembayaran %s",
@@ -425,6 +504,83 @@ class PaymentService:
                 "order_id": order_id,
             },
         )
+
+    async def mark_deposit_completed(
+        self, gateway_order_id: str, amount_cents: int
+    ) -> Dict[str, Any]:
+        """Mark deposit as completed and credit user balance."""
+        deposit = await get_deposit_by_gateway(gateway_order_id)
+        if deposit is None:
+            raise PaymentError("Deposit tidak ditemukan.")
+
+        current_status = str(deposit.get("status") or "")
+        payable_expected = int(deposit.get("payable_cents") or 0)
+        if payable_expected and payable_expected != amount_cents:
+            raise PaymentError("Nominal deposit tidak cocok.")
+
+        if current_status == "completed":
+            logger.info(
+                "[deposit_replay] Deposit %s sudah selesai, abaikan webhook ulang.",
+                gateway_order_id,
+            )
+            return deposit
+
+        updated = await update_deposit_status(gateway_order_id, "completed")
+        if updated is None:
+            logger.warning(
+                "[deposit_status] Deposit %s tidak ditemukan saat update status.",
+                gateway_order_id,
+            )
+            return deposit
+
+        credit_amount = int(updated.get("amount_cents") or 0)
+        if credit_amount > 0:
+            await update_balance(int(updated["user_id"]), credit_amount)
+        await self._telemetry.increment("successful_transactions")
+        logger.info(
+            "[deposit_completed] Deposit %s selesai (%s rupiah).",
+            gateway_order_id,
+            credit_amount,
+        )
+        audit_log(
+            actor_id=int(updated.get("user_id") or 0),
+            action="deposit.completed",
+            details={
+                "gateway_order_id": gateway_order_id,
+                "amount_cents": credit_amount,
+                "fee_cents": int(updated.get("fee_cents") or 0),
+            },
+        )
+        await delete_payment_messages(gateway_order_id)
+        return updated
+
+    async def mark_deposit_failed(self, gateway_order_id: str) -> None:
+        """Mark deposit as failed or expired."""
+        current = await get_deposit_by_gateway(gateway_order_id)
+        if current is None:
+            logger.warning(
+                "[deposit_failed] Deposit %s tidak ditemukan saat penandaan gagal.",
+                gateway_order_id,
+            )
+            return
+        if str(current.get("status") or "") == "failed":
+            logger.info(
+                "[deposit_replay] Deposit %s sudah ditandai gagal sebelumnya.",
+                gateway_order_id,
+            )
+            return
+        deposit = await update_deposit_status(gateway_order_id, "failed")
+        if deposit:
+            await self._telemetry.increment("failed_transactions")
+            logger.info("[deposit_failed] Deposit %s ditandai gagal.", gateway_order_id)
+            audit_log(
+                actor_id=int(deposit.get("user_id") or 0),
+                action="deposit.failed",
+                details={
+                    "gateway_order_id": gateway_order_id,
+                    "amount_cents": int(deposit.get("amount_cents") or 0),
+                },
+            )
 
     async def _record_manual_payment(
         self,

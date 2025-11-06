@@ -2,7 +2,7 @@
 
 Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui Pakasir, serta fitur kustomisasi menu dan respon bot oleh admin langsung dari Telegram.
 
-> **Status:** ✅ Production Ready | **Version:** 0.5.3 | **Last Updated:** 2025-11-07
+> **Status:** ✅ Production Ready | **Version:** 0.5.4 | **Last Updated:** 2025-11-06
 
 ## Struktur Proyek
 - `src/`
@@ -24,12 +24,15 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
   - Scheduled job berjalan setiap 60 detik untuk monitor expired payments
   - Auto-cancel dan restock produk ketika payment expired
   - User menerima notifikasi lengkap dengan detail transaksi dan langkah selanjutnya
+  - Deposit QRIS yang tidak dibayar ikut dibatalkan dan log pesan dibersihkan
   - Mencegah "ghost orders" yang block inventory tanpa pembayaran
-- **Informasi & Cara Order Panel**: Pesan welcome kini menyertakan inline button `ℹ️ INFORMASI` dan `📘 Cara Order`
+- **Informasi & Cara Order Panel**: Pesan welcome tunggal menyertakan inline button `ℹ️ INFORMASI` dan `📘 Cara Order`
   - Panel informasi menampilkan saldo, status verifikasi, Bank ID, dan ID pengguna
   - User dapat mengubah display name & nomor WhatsApp langsung dari Telegram
   - Tombol Customer Service mengarahkan ke admin, sedangkan Last Transaction menampilkan histori order terbaru
   - Template Cara Order dapat dikustomisasi (teks + gambar) dari menu admin
+- **QRIS Invoice Normalization**: Subtotal, fee Pakasir (0,7% + Rp310), dan total dibayar ditampilkan terpisah; guard mencegah checkout ketika keranjang kosong
+- **Deposit QRIS Otomatis**: Menu `💰 Deposit` membuat invoice QRIS dengan fee otomatis, menyimpan log deposit, dan scheduler membersihkan pesan kadaluarsa
 - **Menu Admin Telegram dengan Hierarki**: Admin dapat mengakses menu khusus `⚙️ Admin Settings` dengan submenu terstruktur:
   - **Kelola Respon Bot**: Preview template pesan (welcome, payment success) dengan placeholder, edit teks/gambar, dan **inline cancel button** di setiap mode input
   - **Kelola Produk**: CRUD produk dengan **wizard step-by-step** (5 langkah ramah awam), tanpa kategori, pilih produk dari list untuk edit/hapus

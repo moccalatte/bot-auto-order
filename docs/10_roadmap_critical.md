@@ -2,6 +2,8 @@
 
 Dokumen ini menggabungkan roadmap dan langkah-langkah fatal/critical yang wajib diterapkan sebelum bot auto order Telegram masuk produksi. Fokus pada pencegahan kegagalan besar, kehilangan data, downtime, keamanan, dan compliance. Semua item di bawah WAJIB selesai sebelum go-live. Fitur opsional/non-critical dapat ditambahkan setelah aplikasi stabil.
 
+> **Update 6 Nov 2025:** Target kritis terbaru: pastikan normalisasi fee QRIS, alur deposit otomatis, dan pembersihan pesan kadaluarsa telah diverifikasi di staging sebelum produksi. Tambahkan monitoring manual minimal saat upgrade karena perubahan menyentuh `PaymentService` & scheduler.
+
 ---
 
 ## 1. Infrastruktur & Ketahanan Server

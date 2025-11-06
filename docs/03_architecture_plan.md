@@ -4,6 +4,8 @@
 
 Bot Auto Order Telegram adalah sistem otomatisasi pemesanan produk digital melalui Telegram, terintegrasi dengan payment gateway Pakasir. Sistem ini dirancang modular, scalable, dan aman, dengan observability dan audit log yang lengkap.
 
+> **Update 6 Nov 2025:** PaymentService menambahkan modul fee kalkulasi & deposit service baru, scheduler `check_expired_payments_job` menangani pembersihan invoice + notifikasi deposit, dan layer bot memastikan welcome/keranjang mengikuti aturan UX terbaru.
+
 ---
 
 ## Business Process

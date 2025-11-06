@@ -18,7 +18,9 @@ from src.services.payment import PaymentService, PaymentError
 logger = logging.getLogger(__name__)
 
 
-def verify_signature(raw_body: bytes, signature: str | None, secret: str | None) -> bool:
+def verify_signature(
+    raw_body: bytes, signature: str | None, secret: str | None
+) -> bool:
     """Validate HMAC signature when secret is configured."""
     if not secret:
         return True
@@ -51,17 +53,25 @@ async def handle_pakasir_webhook(
 
     status = payload.get("status")
     order_id = str(payload.get("order_id", ""))
-    amount_cents = int(payload.get("amount", 0))
+    amount_rp = int(payload.get("amount", 0))
+    amount_cents = amount_rp * 100
+    is_deposit = order_id.startswith("dp")
 
     if status == "completed":
         try:
-            await payment_service.mark_payment_completed(order_id, amount_cents)
+            if is_deposit:
+                await payment_service.mark_deposit_completed(order_id, amount_cents)
+            else:
+                await payment_service.mark_payment_completed(order_id, amount_cents)
         except PaymentError as exc:
             logger.error("Failed to mark payment completed: %s", exc)
             raise web.HTTPBadRequest(text=str(exc))
         await telemetry.increment("successful_transactions")
     elif status in {"failed", "expired", "cancelled"}:
-        await payment_service.mark_payment_failed(order_id)
+        if is_deposit:
+            await payment_service.mark_deposit_failed(order_id)
+        else:
+            await payment_service.mark_payment_failed(order_id)
         await telemetry.increment("failed_transactions")
     else:
         logger.warning("Unhandled Pakasir status: %s", status)

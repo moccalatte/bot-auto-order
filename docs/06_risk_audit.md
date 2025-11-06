@@ -3,6 +3,8 @@ bot-auto-order/docs/06_risk_audit.md
 
 Dokumen ini mengidentifikasi risiko utama, strategi mitigasi, dan protokol audit untuk proyek bot auto order Telegram yang terintegrasi dengan payment gateway Pakasir.
 
+> **Update 6 Nov 2025:** Risiko baru: salah hitung biaya Pakasir & invoice menumpuk. Mitigasi: fungsi fee terpusat (`calculate_gateway_fee`), deposit service baru dengan verifikasi amount, dan job `check_expired_payments_job` kini membersihkan pesan user/admin secara idempotent.
+
 ---
 
 ## 1. Risk Identification

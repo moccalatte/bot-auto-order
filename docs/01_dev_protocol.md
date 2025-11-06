@@ -2,6 +2,8 @@
 
 **Tujuan:** Panduan AI-first untuk developer solo yang sepenuhnya mengandalkan AI coder. Semua instruksi, perubahan, dan dokumentasi dilakukan lewat prompt dan output AI, agar hasil stabil, efisien, dan mudah diaudit.
 
+> **Update 6 Nov 2025:** Pastikan implementasi mempertahankan welcome single-message, timezone Asia/Jakarta untuk laporan stok/pembayaran, serta penambahan fee Pakasir (0,7% + Rp310) pada alur QRIS & deposit. Scheduler `check_expired_payments_job` wajib dijaga karena kini juga membersihkan invoice & notifikasi deposit.
+
 ---
 
 ## ⚠️ Warning!

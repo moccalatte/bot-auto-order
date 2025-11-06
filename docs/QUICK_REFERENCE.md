@@ -254,6 +254,12 @@ BACKUP_AUTOMATIC_OFFSITE=true
     └── Manage User Deposits
 ```
 
+### Deposit QRIS (Customer Flow)
+1. Customer tekan `💰 Deposit` → pilih `💳 Deposit QRIS`.
+2. Input nominal minimal **Rp10.000** (angka saja).  
+3. Bot menghitung fee otomatis **0,7% + Rp310**, menampilkan subtotal + fee + total dibayar, dan mengirim QR & tautan checkout.
+4. Invoice aktif selama 5 menit; bila expired bot menghapus pesan lama dan mengirim info pembatalan.
+
 ### Access Shortcuts
 
 | Feature | Access Method |

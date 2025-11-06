@@ -3,6 +3,8 @@ bot-auto-order/docs/04_dev_tasks.md
 
 Roadmap dan milestone development untuk proyek bot auto order Telegram, terintegrasi dengan Pakasir dan admin tools berbasis Telegram.
 
+> **Update 6 Nov 2025:** Task baru: (a) normalisasi fee Pakasir di invoice & deposit, (b) implementasi deposit QRIS penuh + cleanup scheduler, (c) UX refinement welcome tunggal & perlindungan checkout kosong. Milestone terkait ditandai selesai pada rilis 0.5.4.
+
 ---
 
 ## Milestone 1 – Setup & Inisialisasi

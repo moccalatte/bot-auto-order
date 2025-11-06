@@ -29,8 +29,10 @@ def main_reply_keyboard(product_numbers: Sequence[int]) -> ReplyKeyboardMarkup:
     keyboard = [
         ["🛍 Semua Produk"],
         ["🏷 Cek Stok", "💰 Deposit"],
-        numbers_row,
+        ["ℹ️ Informasi", "📘 Cara Order"],
     ]
+    if numbers_row:
+        keyboard.append(numbers_row)
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
@@ -93,10 +95,11 @@ def product_inline_keyboard(
     return InlineKeyboardMarkup(buttons)
 
 
-def cart_inline_keyboard() -> InlineKeyboardMarkup:
+def cart_inline_keyboard(has_items: bool = True) -> InlineKeyboardMarkup:
     """Inline keyboard for cart actions."""
-    return InlineKeyboardMarkup(
-        [
+    rows: List[List[InlineKeyboardButton]] = []
+    if has_items:
+        rows.append(
             [
                 InlineKeyboardButton(
                     text="🎟️ Gunakan Kupon", callback_data="cart:coupon"
@@ -104,10 +107,14 @@ def cart_inline_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="💳 Lanjut ke Pembayaran", callback_data="cart:pay"
                 ),
-            ],
-            [InlineKeyboardButton(text="❌ Batal", callback_data="cart:clear")],
-        ]
-    )
+            ]
+        )
+    else:
+        rows.append(
+            [InlineKeyboardButton(text="🛍 Lihat Produk", callback_data="category:all")]
+        )
+    rows.append([InlineKeyboardButton(text="❌ Batal", callback_data="cart:clear")])
+    return InlineKeyboardMarkup(rows)
 
 
 def payment_method_keyboard() -> InlineKeyboardMarkup:
@@ -138,6 +145,13 @@ def invoice_keyboard(payment_url: str) -> InlineKeyboardMarkup:
                 )
             ],
         ]
+    )
+
+
+def deposit_invoice_keyboard(payment_url: str) -> InlineKeyboardMarkup:
+    """Inline keyboard for deposit invoice message."""
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(text="🔗 Checkout URL", url=payment_url)]]
     )
 
 
