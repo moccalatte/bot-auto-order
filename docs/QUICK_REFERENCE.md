@@ -1,8 +1,8 @@
 # 🚀 Quick Reference Guide – Bot Auto Order Telegram
 
-**Version:** 0.2.2  
-**Last Updated:** 2025-01-16  
-**Purpose:** Referensi cepat untuk operasi umum, troubleshooting, dan command reference
+**Version:** 0.7.0  
+**Last Updated:** 2025-01-06  
+**Status:** Production Ready
 
 ---
 
@@ -458,6 +458,38 @@ cat logs/audit/config_changes.log
 ---
 
 ## Useful Database Queries
+
+### Check Data Integrity (v0.7.0+)
+
+```sql
+-- Check for duplicate product contents (should be 0)
+SELECT content, COUNT(*) as cnt 
+FROM product_contents 
+GROUP BY content 
+HAVING COUNT(*) > 1;
+
+-- Check stock consistency
+SELECT p.id, p.code, p.name, p.stock as recorded_stock,
+       COUNT(pc.id) FILTER (WHERE pc.is_used = FALSE) as actual_stock
+FROM products p
+LEFT JOIN product_contents pc ON pc.product_id = p.id
+GROUP BY p.id, p.code, p.name, p.stock
+HAVING p.stock != COUNT(pc.id) FILTER (WHERE pc.is_used = FALSE);
+
+-- Check orphaned order items
+SELECT oi.id, oi.product_id
+FROM order_items oi
+LEFT JOIN products p ON oi.product_id = p.id
+WHERE p.id IS NULL;
+
+-- Check voucher usage
+SELECT code, used_count, max_uses,
+       CASE WHEN max_uses IS NULL THEN NULL
+            ELSE ROUND((used_count::NUMERIC / max_uses::NUMERIC) * 100, 2)
+       END as usage_percentage
+FROM coupons
+ORDER BY used_count DESC;
+```
 
 ### User Statistics
 

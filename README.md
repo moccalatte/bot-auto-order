@@ -2,7 +2,7 @@
 
 Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui Pakasir, serta fitur kustomisasi menu dan respon bot oleh admin langsung dari Telegram.
 
-> **Status:** ✅ Production Ready | **Version:** 0.6.0 | **Last Updated:** 2025-01-XX
+> **Status:** ✅ Production Ready | **Version:** 0.7.0 | **Last Updated:** 2025-01-06
 
 ## Struktur Proyek
 - `src/`
@@ -21,7 +21,40 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
 
 ## Fitur Utama
 
-### 🆕 v0.6.0 - Product Content System & Critical Fixes
+### 🆕 v0.7.0 - Comprehensive Fixes & Schema Improvements ⚡
+- **Database Schema Overhaul** 🔧: Major improvements untuk data integrity
+  - UNIQUE constraints pada product_contents.content (prevent duplicate codes)
+  - UNIQUE constraints pada product_term_submissions (prevent spam)
+  - CHECK constraints pada coupons, payments, deposits (prevent invalid values)
+  - 25+ new indexes untuk performance optimization
+  - Audit log table enabled
+- **Service Layer Complete Validation** ✅: Comprehensive input validation & error handling
+  - Foreign key validation di semua CRUD operations (catalog, order, product_content, deposit)
+  - Product active status validation sebelum order
+  - UUID type safety dengan auto-conversion
+  - Clear error messages untuk user & admin
+  - No more silent failures
+- **Voucher/Coupon System Enhancement** 🎟️: Robust voucher management
+  - Auto-increment used_count dengan row locking
+  - Max uses enforcement (cannot exceed limit)
+  - Validity checking (date range, expired detection)
+  - Usage statistics dan monitoring
+  - Comprehensive validation (duplicate prevention, type checking)
+- **Safe Migration System** 🛡️: Production-ready database migrations
+  - Automatic backup creation untuk critical tables
+  - Data cleanup (duplicates, orphans) sebelum constraint application
+  - Migration tracking dengan rollback capability
+  - Pre/post validation dan integrity checks
+  - Python runner dengan user confirmation prompts
+- **Code Quality Improvements** 📚: Professional-grade codebase
+  - 40+ new utility functions
+  - Comprehensive docstrings (Args, Returns, Raises)
+  - Type hints throughout
+  - Structured logging di semua operations
+  - DRY principle & SOLID practices
+- **See:** `FIXES_SUMMARY_v0.7.0.txt` dan `docs/codebase-critics.md` untuk detail lengkap
+
+### v0.6.0 - Product Content System & Critical Fixes
 - **Product Content-Based Inventory** 🎯: Sistem stok berbasis konten digital yang revolusioner
   - Stok = jumlah actual content yang tersedia (bukan angka manual)
   - Admin upload content (email, password, code, dll) untuk setiap unit produk
@@ -253,7 +286,45 @@ OWNER_ALERT_THRESHOLD=ERROR
 - Gunakan `python -m src.tools.backup_manager create --offsite` untuk membuat backup terenkripsi, dan `restore` untuk pemulihan. Jalankan `docker compose up -d` setelah restore.
 - Catat setiap drill di `logs/maintenance/` untuk audit owner.
 
-## Recent Fixes & Improvements (v0.2.3 - Latest)
+## Recent Fixes & Improvements (v0.7.0 - Latest)
+
+### ✅ v0.7.0 - Comprehensive Database & Service Layer Overhaul (2025-01-06)
+
+**Database Schema Improvements:**
+- Added UNIQUE constraint on `product_contents.content` (prevent duplicate codes to users)
+- Added UNIQUE constraint on `product_term_submissions` (order_id, product_id, telegram_user_id)
+- Added CHECK constraints on `coupons` (used_count validation)
+- Added CHECK constraints on monetary fields (non-negative values)
+- Enhanced `deposits` table with gateway_order_id, fee_cents, payable_cents
+- Enabled `audit_log` table for comprehensive tracking
+- Created 25+ performance indexes
+
+**Service Layer Enhancements:**
+- `catalog.py`: Complete FK validation (category_exists, product_is_active)
+- `product_content/__init__.py`: Duplicate detection, bulk operations, integrity checks
+- `voucher.py`: Complete rewrite with usage tracking and validation
+- `order.py`: UUID standardization with auto-conversion
+- `deposit.py`: Gateway vs manual separation with comprehensive validation
+- `reply_templates.py`: Duplicate label prevention
+
+**Migration & Safety:**
+- Created comprehensive migration script with data cleanup
+- Python migration runner with backup, validation, and rollback
+- Migration tracking table
+- Integrity check functions
+
+**Code Quality:**
+- 40+ new utility functions
+- Comprehensive docstrings and type hints
+- Improved error handling with clear messages
+- Structured logging throughout
+- Input validation standardized
+
+**Files:** `FIXES_SUMMARY_v0.7.0.txt`, `docs/codebase-critics.md`, `scripts/migrations/001_fix_schema_constraints.sql`
+
+---
+
+## Previous Fixes & Improvements (v0.2.3 - v0.6.0)
 
 ### ✅ Complete Admin UX Overhaul (v0.2.3)
 

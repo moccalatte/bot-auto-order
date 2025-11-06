@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import List, Sequence
 
 from src.services.postgres import get_pool
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -31,6 +34,20 @@ class Product:
     def formatted_price(self) -> str:
         rupiah = self.price_cents / 100
         return f"Rp {rupiah:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+async def category_exists(category_id: int) -> bool:
+    """Check if category exists and is active."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        SELECT id FROM categories
+        WHERE id = $1 AND is_active = TRUE
+        LIMIT 1;
+        """,
+        category_id,
+    )
+    return row is not None
 
 
 async def list_categories() -> List[Category]:
@@ -106,45 +123,176 @@ async def add_product(
     price_cents: int,
     stock: int,
 ) -> int:
-    """Tambah produk baru ke database. category_id bisa NULL."""
+    """
+    Tambah produk baru ke database dengan validasi.
+
+    Args:
+        category_id: ID kategori (opsional, bisa NULL)
+        code: Kode unik produk
+        name: Nama produk
+        description: Deskripsi produk
+        price_cents: Harga dalam cents
+        stock: Jumlah stok awal
+
+    Returns:
+        ID produk yang baru dibuat
+
+    Raises:
+        ValueError: Jika validasi gagal
+    """
+    # Validasi input
+    if not code or not code.strip():
+        raise ValueError("Kode produk tidak boleh kosong")
+
+    if not name or not name.strip():
+        raise ValueError("Nama produk tidak boleh kosong")
+
+    if price_cents < 0:
+        raise ValueError("Harga tidak boleh negatif")
+
+    if stock < 0:
+        raise ValueError("Stok tidak boleh negatif")
+
+    # Validasi category_id jika diberikan
+    if category_id is not None:
+        if not await category_exists(category_id):
+            raise ValueError(
+                f"Kategori dengan ID {category_id} tidak ditemukan atau tidak aktif"
+            )
+
     pool = await get_pool()
     async with pool.acquire() as conn:
-        # Make category_id nullable in schema if not already
-        await conn.execute(
-            "ALTER TABLE products ALTER COLUMN category_id DROP NOT NULL;"
-        )
-        row = await conn.fetchrow(
-            """
-            INSERT INTO products (category_id, code, name, description, price_cents, stock)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id;
-            """,
-            category_id,
-            code,
-            name,
-            description,
-            price_cents,
-            stock,
-        )
-    return row["id"]
+        try:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO products (category_id, code, name, description, price_cents, stock)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING id;
+                """,
+                category_id,
+                code.strip(),
+                name.strip(),
+                description.strip() if description else None,
+                price_cents,
+                stock,
+            )
+            product_id = row["id"]
+            logger.info(
+                "[catalog] Added product id=%s code=%s name=%s", product_id, code, name
+            )
+            return product_id
+        except Exception as e:
+            error_msg = str(e)
+            if "duplicate key" in error_msg.lower() and "code" in error_msg.lower():
+                raise ValueError(f"Produk dengan kode '{code}' sudah ada") from e
+            raise
 
 
 async def edit_product(product_id: int, **fields) -> None:
-    """Edit produk di database."""
+    """
+    Edit produk di database dengan validasi.
+
+    Args:
+        product_id: ID produk yang akan diedit
+        **fields: Field yang akan diupdate
+
+    Raises:
+        ValueError: Jika validasi gagal
+    """
+    if not fields:
+        raise ValueError("Tidak ada field yang akan diupdate")
+
+    # Validasi category_id jika ada di fields
+    if "category_id" in fields and fields["category_id"] is not None:
+        if not await category_exists(fields["category_id"]):
+            raise ValueError(
+                f"Kategori dengan ID {fields['category_id']} tidak ditemukan atau tidak aktif"
+            )
+
+    # Validasi data input
+    if "price_cents" in fields and fields["price_cents"] < 0:
+        raise ValueError("Harga tidak boleh negatif")
+
+    if "stock" in fields and fields["stock"] < 0:
+        raise ValueError("Stok tidak boleh negatif")
+
+    if "code" in fields and (not fields["code"] or not fields["code"].strip()):
+        raise ValueError("Kode produk tidak boleh kosong")
+
+    if "name" in fields and (not fields["name"] or not fields["name"].strip()):
+        raise ValueError("Nama produk tidak boleh kosong")
+
+    # Strip string fields
+    if "code" in fields and isinstance(fields["code"], str):
+        fields["code"] = fields["code"].strip()
+    if "name" in fields and isinstance(fields["name"], str):
+        fields["name"] = fields["name"].strip()
+    if "description" in fields and isinstance(fields["description"], str):
+        fields["description"] = fields["description"].strip() or None
+
     pool = await get_pool()
     async with pool.acquire() as conn:
-        sets = ", ".join([f"{k} = ${i + 2}" for i, k in enumerate(fields.keys())])
-        values = [product_id] + list(fields.values())
-        await conn.execute(
-            f"UPDATE products SET {sets}, updated_at = NOW() WHERE id = $1;", *values
-        )
+        try:
+            sets = ", ".join([f"{k} = ${i + 2}" for i, k in enumerate(fields.keys())])
+            values = [product_id] + list(fields.values())
+            result = await conn.execute(
+                f"UPDATE products SET {sets}, updated_at = NOW() WHERE id = $1;",
+                *values,
+            )
+
+            if result == "UPDATE 0":
+                raise ValueError(f"Produk dengan ID {product_id} tidak ditemukan")
+
+            logger.info(
+                "[catalog] Updated product id=%s fields=%s",
+                product_id,
+                list(fields.keys()),
+            )
+        except ValueError:
+            raise
+        except Exception as e:
+            error_msg = str(e)
+            if "duplicate key" in error_msg.lower() and "code" in error_msg.lower():
+                raise ValueError(
+                    f"Produk dengan kode '{fields.get('code')}' sudah ada"
+                ) from e
+            raise
 
 
 async def delete_product(product_id: int) -> None:
-    """Hapus produk dari database."""
+    """
+    Hapus produk dari database.
+
+    Args:
+        product_id: ID produk yang akan dihapus
+
+    Raises:
+        ValueError: Jika produk tidak dapat dihapus
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute("DELETE FROM products WHERE id = $1;", product_id)
+        # Check if product has order items
+        order_items = await conn.fetchval(
+            """
+            SELECT COUNT(*) FROM order_items
+            WHERE product_id = $1
+            LIMIT 1;
+            """,
+            product_id,
+        )
+
+        if order_items and order_items > 0:
+            raise ValueError(
+                f"Produk tidak dapat dihapus karena sudah ada dalam {order_items} order. "
+                "Sebaiknya nonaktifkan produk dengan set is_active = FALSE."
+            )
+
+        result = await conn.execute("DELETE FROM products WHERE id = $1;", product_id)
+
+        if result == "DELETE 0":
+            raise ValueError(f"Produk dengan ID {product_id} tidak ditemukan")
+
+        logger.info("[catalog] Deleted product id=%s", product_id)
 
 
 async def list_products_by_category(category_slug: str) -> Sequence[Product]:
@@ -240,3 +388,31 @@ async def get_product(product_id: int) -> Product | None:
         sold_count=data["sold_count"],
         category=category,
     )
+
+
+async def product_exists(product_id: int) -> bool:
+    """Check if product exists."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        SELECT id FROM products
+        WHERE id = $1
+        LIMIT 1;
+        """,
+        product_id,
+    )
+    return row is not None
+
+
+async def product_is_active(product_id: int) -> bool:
+    """Check if product exists and is active."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        SELECT id FROM products
+        WHERE id = $1 AND is_active = TRUE
+        LIMIT 1;
+        """,
+        product_id,
+    )
+    return row is not None
