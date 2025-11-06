@@ -1,0 +1,154 @@
+================================================================================
+  BOT AUTO ORDER TELEGRAM - RELEASE NOTES v0.5.0
+================================================================================
+
+Release Date: 2025-01-XX
+Status: Release Candidate
+Severity: Medium (Critical Fixes + Feature Enhancement)
+
+================================================================================
+  WHAT'S NEW
+================================================================================
+
+✨ PAYMENT EXPIRATION MONITORING SYSTEM
+   - Automated tracking untuk expired payments setiap 60 detik
+   - Auto-cancel dan restock produk ketika payment expired
+   - User mendapat notifikasi lengkap dengan detail transaksi
+   - Mencegah "ghost orders" yang block inventory
+
+================================================================================
+  CRITICAL FIXES
+================================================================================
+
+🔧 WELCOME MESSAGE INLINE KEYBOARD
+   Problem: Welcome message tidak punya inline keyboard "Cek Stok" & "Semua Produk"
+            Ada pesan terpisah "📱 Aksi Cepat:" yang mengganggu
+   Fixed:   Inline keyboard sekarang terintegrasi di welcome message
+            Pesan "Aksi Cepat" dihapus sepenuhnya
+   Impact:  Cleaner UX, less confusing
+
+🔧 TRANSFER MANUAL ADMIN CONTACT
+   Problem: Menampilkan @user_id_{owner_id} yang bukan admin
+            Format tidak proper (bukan hyperlink)
+   Fixed:   Menggunakan telegram_admin_ids dengan hyperlink proper
+            Format: <a href="tg://user?id={admin_id}">admin</a>
+   Impact:  User bisa langsung klik contact admin yang benar
+
+🔧 PAYMENT FLOW MESSAGE ORDER
+   Problem: Urutan berantakan - notify admin dulu, baru invoice ke user
+            Loading message tidak di-edit (duplicate messages)
+   Fixed:   Invoice ke user FIRST, notify admin kemudian
+            Loading message di-edit, cart auto-clear
+   Impact:  Professional dan konsisten payment experience
+
+🔧 PAYMENT EXPIRATION NOTIFICATION
+   Problem: Payment expired tanpa notifikasi ke user
+            No auto-cancel, inventory tetap blocked
+   Fixed:   Scheduled job monitor dan notify expired payments
+            Auto-cancel, restock, dan inform user
+   Impact:  Better inventory management, user informed
+
+================================================================================
+  TECHNICAL DETAILS
+================================================================================
+
+Modified Files:
+  • src/bot/handlers.py          - Welcome, transfer manual, payment flow fixes
+  • src/services/payment.py      - Expires_at tracking dari Pakasir
+  • src/core/tasks.py             - New check_expired_payments_job function
+  • src/core/scheduler.py         - Job registration (60s interval)
+
+Database Changes:
+  • No migration needed
+  • Uses existing payments.expires_at column
+
+Compatibility:
+  • Fully backward compatible
+  • No breaking changes
+  • No new environment variables required
+
+================================================================================
+  DEPLOYMENT INSTRUCTIONS
+================================================================================
+
+1. BACKUP
+   - Backup production database
+   - Note current git commit hash
+
+2. DEPLOY
+   git pull origin main
+   python -m py_compile src/**/*.py  # Verify syntax
+   sudo systemctl restart telegram-bot  # or docker-compose restart
+
+3. VERIFY
+   - Check logs: tail -f logs/telegram-bot/$(date +%Y-%m-%d).log
+   - Test /start → inline keyboard present
+   - Test deposit → transfer manual → admin hyperlink works
+   - Check scheduled job runs: grep "check_expired_payments" logs/*
+
+4. MONITOR (First 24 Hours)
+   - Scheduled job health (every ~60s)
+   - Payment creation success rate
+   - Expiration notification delivery
+   - User feedback on new UX
+
+================================================================================
+  TESTING CHECKLIST
+================================================================================
+
+Immediate Tests (5 min):
+  [ ] /start shows inline keyboard (NO "Aksi Cepat" message)
+  [ ] Transfer manual shows clickable admin hyperlink
+  [ ] Payment flow: invoice first, then admin notification
+  [ ] Scheduled job runs without errors
+
+Extended Tests (1 hour):
+  [ ] Create payment → wait 5 min → verify expiration notification
+  [ ] Multiple concurrent payments handled correctly
+  [ ] QR code scans successfully
+  [ ] Product restocked after expiration
+
+================================================================================
+  ROLLBACK PLAN
+================================================================================
+
+If issues arise:
+  git log --oneline -5  # Get previous commit
+  git checkout <previous-commit>
+  sudo systemctl restart telegram-bot
+
+No database rollback needed (schema unchanged)
+
+================================================================================
+  KNOWN ISSUES & LIMITATIONS
+================================================================================
+
+• Expiration monitoring requires expires_at field from Pakasir API
+  (Fallback: webhook-based expiration still works if field missing)
+
+• Job interval currently hardcoded at 60 seconds
+  (Future: make configurable via environment)
+
+================================================================================
+  SUPPORT
+================================================================================
+
+Documentation: docs/fixing_plan.md, docs/CHANGELOG.md
+Logs Location: logs/telegram-bot/YYYY-MM-DD.log
+Repository: https://github.com/your-repo/bot-auto-order
+
+For issues, check logs first, then review deployment summary at:
+  DEPLOYMENT_v0.5.0_SUMMARY.md
+
+================================================================================
+  CREDITS
+================================================================================
+
+Developed by: Senior Level Agent (IQ 150 😉)
+Reviewed by: [Pending]
+Tested by: [Pending]
+Approved by: [Pending]
+
+================================================================================
+End of Release Notes v0.5.0
+================================================================================

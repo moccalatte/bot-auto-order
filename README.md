@@ -2,7 +2,7 @@
 
 Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui Pakasir, serta fitur kustomisasi menu dan respon bot oleh admin langsung dari Telegram.
 
-> **Status:** ✅ Production Ready | **Version:** 0.4.0 | **Last Updated:** 2025-01-XX
+> **Status:** ✅ Production Ready | **Version:** 0.5.0 | **Last Updated:** 2025-01-XX
 
 ## Struktur Proyek
 - `src/`
@@ -20,6 +20,11 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
 - `.gitignore` – aturan berkas yang diabaikan Git.
 
 ## Fitur Utama
+- **Payment Expiration Monitoring**: Sistem otomatis untuk tracking dan notifikasi pembayaran expired
+  - Scheduled job berjalan setiap 60 detik untuk monitor expired payments
+  - Auto-cancel dan restock produk ketika payment expired
+  - User menerima notifikasi lengkap dengan detail transaksi dan langkah selanjutnya
+  - Mencegah "ghost orders" yang block inventory tanpa pembayaran
 - **Menu Admin Telegram dengan Hierarki**: Admin dapat mengakses menu khusus `⚙️ Admin Settings` dengan submenu terstruktur:
   - **Kelola Respon Bot**: Preview template pesan (welcome, payment success) dengan placeholder, edit teks/gambar, dan **inline cancel button** di setiap mode input
   - **Kelola Produk**: CRUD produk dengan **wizard step-by-step** (5 langkah ramah awam), tanpa kategori, pilih produk dari list untuk edit/hapus
@@ -28,9 +33,9 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
   - **Kelola Voucher**: Generate voucher dengan **format sederhana** `KODE | NOMINAL | BATAS_PAKAI` (support % dan fixed amount) dan **inline cancel button**
   - **Broadcast**: Kirim pesan ke semua user dengan statistik (total, success, failed) dan **inline cancel button**
   - **Calculator**: User-friendly calculator untuk refund/deposit yang **langsung berfungsi** (no command), dengan **inline cancel button**
-  - **Deposit**: Deposit QRIS (coming soon) dan Transfer Manual dengan panduan lengkap
+  - **Deposit**: Deposit QRIS (coming soon) dan Transfer Manual dengan panduan lengkap dan hyperlink ke admin yang proper
 - **Product List dengan Pagination**: List produk menampilkan 5 item per halaman dengan navigation buttons (Previous/Next) dan quick view
-- **Enhanced Welcome Experience**: Semua user (admin & customer) mendapat inline keyboard dengan quick actions saat `/start`, cancel, atau kembali ke menu utama
+- **Enhanced Welcome Experience**: Welcome message langsung include inline keyboard "🏷 Cek Stok" dan "🛍 Semua Produk" tanpa pesan terpisah
 - **Consistent Cancel Behavior**: Semua tombol batal di menu admin menampilkan welcome message yang lengkap dengan inline keyboard
 - **Role-Based Keyboard**: Bot menampilkan keyboard yang berbeda berdasarkan role user:
   - Admin: Melihat tombol `⚙️ Admin Settings` untuk akses penuh
@@ -39,6 +44,7 @@ Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui P
 - **Audit Log**: Setiap perubahan konfigurasi tercatat untuk audit owner.
 - **Validasi Input**: Semua input admin divalidasi sebelum disimpan.
 - **Rollback**: Bot dapat rollback ke default jika terjadi error konfigurasi.
+- **Optimized Payment Flow**: Invoice dikirim ke user terlebih dahulu sebelum notifikasi admin, loading message di-edit (tidak duplikat), cart auto-clear setelah pembayaran
 - **Privasi & Keamanan**: Data pribadi buyer/seller dijaga, hanya admin berwenang yang bisa akses. Owner dapat override dan audit penuh. Validasi input komprehensif untuk mencegah injection attacks.
 - **Notifikasi Pesanan Baru ke Seller**: Order baru otomatis men-trigger pesan ringkas (tanpa owner) berisi data customer, produk, metode, dan timestamp lokal.
 - **SNK Produk & Monitoring**: Admin dapat menambahkan Syarat & Ketentuan per produk; bot mengirim SNK setelah pembayaran, customer dapat mengirim bukti lewat tombol `Penuhi SNK`, dan admin menerima notifikasi + media.

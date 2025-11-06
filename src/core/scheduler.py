@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from telegram.ext import Application
 
 from src.core.config import get_settings
-from src.core.tasks import backup_job, healthcheck_job
+from src.core.tasks import backup_job, healthcheck_job, check_expired_payments_job
 
 
 def _parse_time(value: str, timezone: str) -> time:
@@ -47,3 +47,11 @@ def register_scheduled_jobs(application: Application) -> None:
             time=backup_time,
             name="auto_backup",
         )
+
+    # Monitor expired payments every minute
+    job_queue.run_repeating(
+        check_expired_payments_job,
+        interval=60,  # Check every 60 seconds
+        first=10,  # Start after 10 seconds
+        name="check_expired_payments",
+    )

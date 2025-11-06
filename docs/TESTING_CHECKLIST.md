@@ -1,8 +1,119 @@
 # 🧪 Testing & Deployment Checklist – Bot Auto Order Telegram
 
-**Version:** 0.2.2  
-**Last Updated:** 2025-01-16  
+**Version:** 0.5.0  
+**Last Updated:** 2025-01-XX  
 **Purpose:** Comprehensive checklist untuk memastikan semua features berfungsi dengan baik sebelum production deployment.
+
+---
+
+## 🆕 Version 0.5.0 Specific Tests
+
+### Critical Fix Verification
+
+#### Test V5.1: Welcome Message Inline Keyboard
+**Priority:** HIGH  
+**Test Steps:**
+1. Send `/start` to bot as customer
+2. Verify welcome message includes inline keyboard with:
+   - "🏷 Cek Stok" button
+   - "🛍 Semua Produk" button
+3. Verify NO separate message with "📱 Aksi Cepat:"
+4. Click "🏷 Cek Stok" → should show product list
+5. Click "🛍 Semua Produk" → should show all products
+
+**Expected Result:**
+- ✅ Welcome message has inline keyboard integrated
+- ✅ No "📱 Aksi Cepat:" message appears
+- ✅ Buttons work correctly
+
+**Rollback If:** Welcome message broken, inline keyboard missing, or extra messages appear
+
+---
+
+#### Test V5.2: Transfer Manual Admin Contact
+**Priority:** HIGH  
+**Test Steps:**
+1. Navigate to: 💰 Deposit → Transfer Manual
+2. Verify message shows admin contact as clickable hyperlink
+3. Click the admin hyperlink
+4. Verify it opens Telegram chat with correct admin user
+5. Verify format is NOT `@user_id_{number}`
+
+**Expected Result:**
+- ✅ Admin contact is HTML hyperlink: `<a href="tg://user?id={admin_id}">admin</a>`
+- ✅ Clicking opens correct admin chat
+- ✅ Uses telegram_admin_ids (not owner_ids)
+
+**Rollback If:** Wrong user shown, not clickable, or shows @user_id format
+
+---
+
+#### Test V5.3: Payment Flow Message Order
+**Priority:** HIGH  
+**Test Steps:**
+1. Add product to cart
+2. Proceed to checkout → Select QRIS
+3. Observe message sequence:
+   - Loading message appears
+   - Loading message is edited/deleted (not duplicate)
+   - Invoice with QR code sent to user FIRST
+   - Admin receives order notification AFTER
+4. Verify invoice HTML formatting (bold/italic) renders correctly
+5. Verify cart is automatically cleared
+
+**Expected Result:**
+- ✅ No duplicate loading messages
+- ✅ Invoice to user first, admin notification second
+- ✅ QR code displays with proper formatting
+- ✅ Cart cleared automatically
+
+**Rollback If:** Message order wrong, duplicate messages, or HTML not rendering
+
+---
+
+#### Test V5.4: Payment Expiration Monitoring
+**Priority:** CRITICAL  
+**Test Steps:**
+1. Create a QRIS payment (don't pay)
+2. Check database: `SELECT gateway_order_id, expires_at FROM payments WHERE status='created';`
+3. Verify `expires_at` is populated (not NULL)
+4. Wait 5-6 minutes (or manually update expires_at to past time in DB)
+5. Monitor logs: `grep "expired_payments" logs/telegram-bot/*.log`
+6. Verify user receives expiration notification:
+   - "⏰ Pembayaran Kedaluwarsa"
+   - Transaction ID shown
+   - Cancellation message
+   - Next steps guidance
+7. Check database: payment status changed to 'failed'
+8. Check product stock: restored to original quantity
+
+**Expected Result:**
+- ✅ expires_at saved from Pakasir response
+- ✅ Scheduled job runs every ~60 seconds
+- ✅ User notified when payment expires
+- ✅ Payment marked as failed
+- ✅ Product restocked
+
+**Rollback If:** No notification sent, job not running, or stock not restored
+
+---
+
+#### Test V5.5: Scheduled Job Health
+**Priority:** MEDIUM  
+**Test Steps:**
+1. Bot running for at least 5 minutes
+2. Check logs: `grep "check_expired_payments" logs/telegram-bot/*.log | tail -20`
+3. Verify job executions roughly every 60 seconds
+4. Verify no errors or exceptions in job
+5. Check job registration at startup: `grep "check_expired_payments" logs/*`
+
+**Expected Result:**
+- ✅ Job registered at bot startup
+- ✅ Job runs every 60±5 seconds
+- ✅ No errors in job execution
+- ✅ Handles empty results gracefully
+
+**Rollback If:** Job not running, frequent errors, or causing performance issues
 
 ---
 

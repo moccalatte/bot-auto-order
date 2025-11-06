@@ -4,6 +4,75 @@ Dokumen ini mencatat riwayat perubahan, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
+## [0.5.0] – 2025-01-XX (Payment Expiration Monitoring, UX Improvements, Critical Fixes)
+
+### Added
+- **Payment Expiration Monitoring System**: Automated expired payment tracking and user notification
+  - New scheduled job `check_expired_payments_job` runs every 60 seconds
+  - Monitors payments with `expires_at` timestamp from Pakasir
+  - Auto-marks expired payments as failed and restocks products
+  - Sends comprehensive expiration notification to users
+  - Prevents "ghost" orders from blocking inventory
+- **Expires_at Tracking**: Save expiration timestamp from Pakasir API response
+  - Stored in `payments.expires_at` column (already in schema)
+  - Critical for automated expiration monitoring
+  - Used by scheduled job for precise timing
+
+### Fixed
+- **CRITICAL: Welcome Message Inline Keyboard Missing**: Fixed welcome message not showing inline action buttons
+  - Welcome message now includes inline keyboard with "🏷 Cek Stok" and "🛍 Semua Produk" buttons
+  - Removed separate "📱 Aksi Cepat:" message entirely (user complaint)
+  - Cleaner, more intuitive UX
+- **CRITICAL: Transfer Manual Contact Info**: Fixed admin contact showing wrong user
+  - Changed from `telegram_owner_ids` to `telegram_admin_ids`
+  - Replaced `@user_id_{id}` format with proper HTML hyperlink: `<a href="tg://user?id={admin_id}">admin</a>`
+  - Fallback to owner if admin not configured
+- **CRITICAL: Payment Flow Order**: Fixed messy payment message sequence
+  - Now sends invoice to user FIRST, then notifies admin (previously reversed)
+  - Loading message is edited instead of creating duplicate messages
+  - Cart cleared automatically after payment creation
+  - Cleaner, more professional payment experience
+- **Payment Expiration Handling**: Fixed no notification when payment expires
+  - Previously payments would expire silently without user notification
+  - Now user receives detailed expiration message with order cancellation info
+  - Includes transaction ID, cancellation reason, and next steps
+- **QR Code Display**: Enhanced QR invoice message with proper HTML parsing
+  - Added missing `parse_mode=ParseMode.HTML` to reply_photo
+  - Invoice text now renders properly with formatting
+
+### Changed
+- **Payment Service**: Enhanced `create_invoice()` to capture and store expires_at
+  - Extracts `expired_at` from Pakasir response payload
+  - Updates database immediately after transaction creation
+  - Enables precise expiration tracking
+- **Scheduled Jobs**: Added payment expiration monitoring to job queue
+  - Registered in `register_scheduled_jobs()` function
+  - Runs every 60 seconds with 10-second initial delay
+  - Independent from health check and backup jobs
+- **User Experience**: Improved payment flow consistency and clarity
+  - Single, clear invoice message with QR code
+  - No duplicate or confusing messages
+  - Professional notification when payment expires
+
+### Technical Details
+- **Files Modified**:
+  - `src/bot/handlers.py`: Welcome message, transfer manual, payment flow
+  - `src/services/payment.py`: Expires_at tracking
+  - `src/core/tasks.py`: Expiration monitoring job
+  - `src/core/scheduler.py`: Job registration
+- **Database**: Uses existing `payments.expires_at` column (no migration needed)
+- **Compatibility**: Fully backward compatible with existing payments
+
+### Testing Required
+- [ ] Welcome message displays inline keyboard correctly
+- [ ] Transfer manual shows proper admin hyperlink
+- [ ] Payment flow creates invoice before admin notification
+- [ ] Expired payments trigger user notification after 5 minutes
+- [ ] QR code scans successfully
+- [ ] Scheduled job runs without errors
+
+---
+
 ## [0.4.0] – 2025-01-XX (Product List Pagination, Deposit Handlers, Major Bug Fixes)
 
 ### Added

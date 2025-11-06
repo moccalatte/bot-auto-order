@@ -118,7 +118,7 @@ async def _send_welcome_message(
     user: User,
     message: Message | None = None,
 ) -> None:
-    """Send welcome message with appropriate keyboards."""
+    """Send welcome message with inline keyboard for quick actions."""
     settings = get_settings()
     stats = await get_bot_statistics()
     products = await list_products()
@@ -141,7 +141,7 @@ async def _send_welcome_message(
     # Use admin keyboard for admins, regular keyboard for customers
     from src.bot.admin.admin_menu import admin_main_menu
 
-    # Inline keyboard with quick actions (for both admin and customer)
+    # Inline keyboard with quick actions integrated in welcome message
     inline_keyboard = InlineKeyboardMarkup(
         [
             [
@@ -160,18 +160,17 @@ async def _send_welcome_message(
     else:
         reply_keyboard = keyboards.main_reply_keyboard(range(1, min(len(products), 6)))
 
-    # Send welcome message with reply keyboard
+    # Send welcome message with inline keyboard (NO separate "Aksi Cepat" message!)
     await target_message.reply_text(
         welcome_text,
-        reply_markup=reply_keyboard,
+        reply_markup=inline_keyboard,
         parse_mode=ParseMode.HTML,
     )
 
-    # Send inline keyboard in a separate message
+    # Set reply keyboard for menu navigation with minimal text
     await target_message.reply_text(
-        "📱 <b>Aksi Cepat:</b>",
-        reply_markup=inline_keyboard,
-        parse_mode=ParseMode.HTML,
+        "🎯 Gunakan menu di bawah untuk navigasi cepat:",
+        reply_markup=reply_keyboard,
     )
 
 
@@ -2075,10 +2074,15 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         elif action == "manual":
             await query.answer()
             settings = get_settings()
-            # Get admin/owner info for transfer
+            # Get admin info for transfer (use admin_ids, not owner_ids)
             admin_contact = "admin"  # Default
-            if settings.telegram_owner_ids:
-                admin_contact = f"@user_id_{settings.telegram_owner_ids[0]}"
+            if settings.telegram_admin_ids:
+                admin_id = settings.telegram_admin_ids[0]
+                admin_contact = f'<a href="tg://user?id={admin_id}">admin</a>'
+            elif settings.telegram_owner_ids:
+                # Fallback to owner if no admin configured
+                owner_id = settings.telegram_owner_ids[0]
+                admin_contact = f'<a href="tg://user?id={owner_id}">owner</a>'
 
             await query.message.reply_text(
                 "📝 <b>Deposit via Transfer Manual</b>\n\n"
@@ -2215,10 +2219,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         telemetry = get_telemetry(context)
         cart = await cart_manager.get_cart(user.id)
         if action == "qris":
+            # Show loading message
+            loading_msg = await query.message.reply_text(
+                messages.payment_loading(), parse_mode=ParseMode.HTML
+            )
+
             try:
-                await query.message.reply_text(
-                    messages.payment_loading(), parse_mode=ParseMode.HTML
-                )
                 gateway_order_id, payload = await payment_service.create_invoice(
                     telegram_user={
                         "id": user.id,
@@ -2231,10 +2237,42 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
             except PaymentError as exc:
                 await telemetry.increment("failed_transactions")
-                await query.message.reply_text(f"⚠️ {exc}")
+                await loading_msg.edit_text(f"⚠️ {exc}", parse_mode=ParseMode.HTML)
                 return
 
             payment_data = payload["payment"]
+            invoice_text = messages.payment_invoice_detail(
+                invoice_id=gateway_order_id,
+                items=cart.to_lines(),
+                total_rp=format_rupiah(cart.total_cents()),
+                expires_in="5 Menit",
+                created_at=payload["created_at"],
+            )
+
+            # Send invoice to user first
+            qr_data = str(payment_data.get("payment_number", ""))
+            if qr_data:
+                await query.message.reply_photo(
+                    photo=qris_to_image(qr_data),
+                    caption=invoice_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=keyboards.invoice_keyboard(payload["payment_url"]),
+                )
+            else:
+                await query.message.reply_text(
+                    invoice_text
+                    + "\n\n(⚠️ QR tidak tersedia, gunakan tautan checkout.)",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=keyboards.invoice_keyboard(payload["payment_url"]),
+                )
+
+            # Delete loading message
+            try:
+                await loading_msg.delete()
+            except Exception:
+                pass
+
+            # Then notify admin
             await _notify_admin_new_order(
                 context,
                 user,
@@ -2243,26 +2281,9 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 method=action,
                 created_at=str(payload.get("created_at")),
             )
-            invoice_text = messages.payment_invoice_detail(
-                invoice_id=gateway_order_id,
-                items=cart.to_lines(),
-                total_rp=format_rupiah(cart.total_cents()),
-                expires_in="5 Menit",
-                created_at=payload["created_at"],
-            )
-            qr_data = str(payment_data.get("payment_number", ""))
-            if qr_data:
-                await query.message.reply_photo(
-                    photo=qris_to_image(qr_data),
-                    caption=invoice_text,
-                    reply_markup=keyboards.invoice_keyboard(payload["payment_url"]),
-                )
-            else:
-                await query.message.reply_text(
-                    invoice_text
-                    + "\n\n(⚠️ QR tidak tersedia, gunakan tautan checkout.)",
-                    reply_markup=keyboards.invoice_keyboard(payload["payment_url"]),
-                )
+
+            # Clear cart after successful payment creation
+            await cart_manager.clear_cart(user.id)
             return
         if action == "balance":
             await query.message.reply_text(

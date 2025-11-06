@@ -126,6 +126,7 @@ class PaymentService:
                         item.product.price_cents,
                     )
 
+                # Initialize payment record with expires_at placeholder
                 await connection.execute(
                     """
                     INSERT INTO payments (
@@ -136,9 +137,10 @@ class PaymentService:
                         amount_cents,
                         total_payment_cents,
                         created_at,
-                        updated_at
+                        updated_at,
+                        expires_at
                     )
-                    VALUES ($1, $2, $3, 'created', $4, $4, NOW(), NOW());
+                    VALUES ($1, $2, $3, 'created', $4, $4, NOW(), NOW(), NULL);
                     """,
                     order_id,
                     gateway_order_id,
@@ -167,6 +169,26 @@ class PaymentService:
                 ) from exc
             await self._reset_failures()
             payment_payload = pakasir_response.get("payment", {})
+
+            # Save expires_at from Pakasir response
+            expires_at = payment_payload.get("expired_at")
+            if expires_at:
+                pool = await get_pool()
+                async with pool.acquire() as connection:
+                    await connection.execute(
+                        """
+                        UPDATE payments
+                        SET expires_at = $2
+                        WHERE gateway_order_id = $1;
+                        """,
+                        gateway_order_id,
+                        expires_at,
+                    )
+                logger.info(
+                    "[payment] Saved expires_at for %s: %s",
+                    gateway_order_id,
+                    expires_at,
+                )
 
         await self._telemetry.increment("carts_created")
 
