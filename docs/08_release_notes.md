@@ -4,6 +4,18 @@ Dokumen ini mencatat perubahan penting, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
+## Version 0.5.2 – 2025-11-07
+### Fixed
+- **Bot Startup SyntaxError**: Menghapus fragmen markup `</parameter></invoke>` yang tersisa di `src/services/payment.py` dan menyebabkan bot crash saat `run_stack.sh` dijalankan.
+  - Dampak: Telegram bot dan server webhook kini kembali bisa start normal dalam mode polling maupun webhook.
+
+### Testing
+- `python -m compileall src`
+- `python -m compileall tests`
+- `pytest` *(skipped: modul pytest belum terpasang di sandbox saat ini)*
+
+---
+
 ## Version 0.5.0 – 2025-01-XX
 ### Added
 - **Payment Expiration Monitoring System**: Automated system untuk tracking dan handling expired payments

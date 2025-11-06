@@ -2,7 +2,7 @@
 
 Bot Telegram untuk pemesanan produk digital dengan pembayaran otomatis melalui Pakasir, serta fitur kustomisasi menu dan respon bot oleh admin langsung dari Telegram.
 
-> **Status:** ✅ Production Ready | **Version:** 0.5.0 | **Last Updated:** 2025-01-XX
+> **Status:** ✅ Production Ready | **Version:** 0.5.2 | **Last Updated:** 2025-11-07
 
 ## Struktur Proyek
 - `src/`
@@ -426,6 +426,11 @@ TELEGRAM_ADMIN_IDS=5473468582,123456789
 1. Check logs: `tail -f logs/telegram-bot/$(date +%Y-%m-%d).log`
 2. Verify token valid: `echo $TELEGRAM_BOT_TOKEN`
 3. Test connection: `python -m src.main --mode polling`
+
+### SyntaxError: `</parameter>` di PaymentService
+- Gejala: `SyntaxError: invalid syntax` saat menjalankan `./scripts/run_stack.sh` dengan pointer ke `src/services/payment.py`.
+- Solusi: Pastikan kode sudah diperbarui ke versi `0.5.2` (commit hotfix menghapus fragmen markup `</parameter></invoke>` yang tersisa).
+- Validasi cepat: `python -m compileall src` harus selesai tanpa error.
 
 ### JobQueue Warning Still Appearing
 Jika masih muncul `PTBUserWarning: No 'JobQueue' set up`:

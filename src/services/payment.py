@@ -42,7 +42,7 @@ def _parse_iso_datetime(iso_string: str | datetime | None) -> datetime | None:
     try:
         # Try parsing with fromisoformat (Python 3.7+)
         # Handle 'Z' suffix by replacing with '+00:00'
-        normalized = iso_string.replace('Z', '+00:00')
+        normalized = iso_string.replace("Z", "+00:00")
         return datetime.fromisoformat(normalized)
     except (ValueError, TypeError) as exc:
         logger.error("Failed to parse ISO datetime '%s': %s", iso_string, exc)
@@ -51,8 +51,6 @@ def _parse_iso_datetime(iso_string: str | datetime | None) -> datetime | None:
 
 class PaymentError(RuntimeError):
     """Raised when invoice creation fails."""
-</parameter>
-</invoke>
 
 
 class PaymentService:

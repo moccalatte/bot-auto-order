@@ -4,6 +4,18 @@ Dokumen ini mencatat riwayat perubahan, penambahan fitur, bugfix, refactor, dan 
 
 ---
 
+## [0.5.2] – 2025-11-07 (Hotfix: PaymentService SyntaxError)
+
+### Fixed
+- **CRITICAL: Bot Startup Crash**: Removed stray XML-like closing tags accidentally left in `src/services/payment.py`, which caused a `SyntaxError` during bot and webhook startup. Hotfix ensures PaymentService class loads correctly again.
+
+### Testing
+- `python -m compileall src`
+- `python -m compileall tests`
+- `pytest` *(skipped: pytest package not available in current sandbox)*
+
+---
+
 ## [0.5.1] – 2025-11-06 (Critical Fixes: Payment Flow, Stock Management, DateTime Parsing, UX Improvements)
 
 ### Fixed - CRITICAL Issues (from fixing_plan.md)
